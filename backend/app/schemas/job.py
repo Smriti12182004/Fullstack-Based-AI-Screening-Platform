@@ -1,12 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobCreate(BaseModel):
-    title: str
-    description: str
-    created_by: int
+    title: str = Field(..., min_length=1, max_length=255)
+    description: str = Field(..., min_length=1)
 
 
 class JobResponse(BaseModel):

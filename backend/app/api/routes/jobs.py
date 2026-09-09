@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import require_role
 from app.db.session import get_db
 from app.models import Job, User
 from app.schemas.job import JobCreate, JobResponse
@@ -16,8 +17,12 @@ router = APIRouter(
     response_model=JobResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_job(job: JobCreate, db: Session = Depends(get_db)):
-    user = db.get(User, job.created_by)
+def create_job(
+    job: JobCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("recruiter")),
+):
+    user = db.get(User, current_user["user_id"])
 
     if user is None:
         raise HTTPException(
@@ -28,7 +33,7 @@ def create_job(job: JobCreate, db: Session = Depends(get_db)):
     new_job = Job(
         title=job.title,
         description=job.description,
-        created_by=job.created_by,
+        created_by=current_user["user_id"],
     )
 
     db.add(new_job)
@@ -50,7 +55,10 @@ def get_jobs(db: Session = Depends(get_db)):
     "/{job_id}",
     response_model=JobResponse,
 )
-def get_job(job_id: int, db: Session = Depends(get_db)):
+def get_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+):
     job = db.get(Job, job_id)
 
     if job is None:
