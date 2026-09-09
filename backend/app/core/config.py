@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     app_name: str = "AI Screening Platform API"
     app_version: str = "0.1.0"
     debug: bool = True
+    database_url: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
