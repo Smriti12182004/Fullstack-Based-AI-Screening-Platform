@@ -4,8 +4,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    description: str = Field(..., min_length=1)
+    title: str = Field(
+        ...,
+        min_length=3,
+        max_length=255,
+    )
+    description: str = Field(
+        ...,
+        min_length=20,
+    )
 
 
 class JobResponse(BaseModel):
