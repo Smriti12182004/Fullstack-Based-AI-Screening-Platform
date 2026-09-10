@@ -2,32 +2,31 @@ from datetime import datetime
 
 from app.db.timestamps import utc_now
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
 
-class User(Base):
-    __tablename__ = "users"
+class Assessment(Base):
+    __tablename__ = "assessments"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
-    email: Mapped[str] = mapped_column(
-        String(255),
-        unique=True,
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id"),
         nullable=False,
-        index=True,
     )
 
-    password_hash: Mapped[str] = mapped_column(
+    title: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
 
-    role: Mapped[str] = mapped_column(
+    status: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
+        default="draft",
     )
 
     created_at: Mapped[datetime] = mapped_column(
