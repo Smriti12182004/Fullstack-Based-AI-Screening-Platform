@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Temporary JD test files
+test_jd.txt
+valid_jd.txt
+invalid_jd.txt
+invalid_jd.docx
+test_jd.pdf
+reset_admin.py
+reset_candidate.py
+reset_recruiter.py
