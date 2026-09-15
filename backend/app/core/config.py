@@ -5,8 +5,12 @@ class Settings(BaseSettings):
     app_name: str = "AI Screening Platform API"
     app_version: str = "0.1.0"
     debug: bool = True
+
     database_url: str
     secret_key: str
+
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
 
     model_config = SettingsConfigDict(
         env_file=".env",
