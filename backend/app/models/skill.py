@@ -3,7 +3,7 @@ from datetime import datetime
 from app.db.timestamps import utc_now
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -18,6 +18,11 @@ class Skill(Base):
         unique=True,
         nullable=False,
         index=True,
+    )
+
+    jobs: Mapped[list["Job"]] = relationship(
+        secondary="job_skills",
+        back_populates="skills",
     )
 
     created_at: Mapped[datetime] = mapped_column(

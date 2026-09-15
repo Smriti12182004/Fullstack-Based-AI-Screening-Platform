@@ -22,5 +22,14 @@ class JobResponse(BaseModel):
     created_by: int
     created_at: datetime
     updated_at: datetime
-
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExtractedSkillResponse(BaseModel):
+    name: str
+    category: str
+
+
+class SkillExtractionResponseSchema(BaseModel):
+    job_id: int
+    skills: list[ExtractedSkillResponse]
