@@ -3,6 +3,7 @@ from app.models.attempt import Attempt
 from app.models.audit_event import AuditEvent
 from app.models.job import Job
 from app.models.job_skill import JobSkill
+from app.models.job_skill_review import JobSkillReview
 from app.models.question import Question
 from app.models.response import Response
 from app.models.result import Result
@@ -15,6 +16,7 @@ __all__ = [
     "AuditEvent",
     "Job",
     "JobSkill",
+    "JobSkillReview",
     "Question",
     "Response",
     "Result",
