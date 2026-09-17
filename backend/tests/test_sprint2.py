@@ -2172,3 +2172,191 @@ def test_failed_question_update_does_not_modify_existing_question(
 
     finally:
         db.close()
+
+
+
+
+# S2-04: Curated Seed Questions
+
+
+
+
+def test_seed_question_set_covers_required_core_skills():
+    """S2-04 seed data covers all required core skills."""
+    from app.db.seed_questions import SEED_QUESTIONS, SEED_SKILLS
+
+    required_skills = {
+        "python",
+        "sql",
+        "machine learning",
+        "deep learning",
+        "statistics",
+    }
+
+    assert set(SEED_SKILLS) == required_skills
+    assert {seed["skill"] for seed in SEED_QUESTIONS} == required_skills
+
+
+def test_seed_questions_have_complete_metadata():
+    """Every curated seed question has complete required metadata."""
+    from app.db.seed_questions import SEED_QUESTIONS
+
+    for seed in SEED_QUESTIONS:
+        assert seed["skill"]
+        assert seed["question_text"]
+        assert seed["question_type"] in {"MCQ", "FREE_TEXT"}
+        assert seed["difficulty"] in {"easy", "medium", "hard"}
+
+        if seed["question_type"] == "MCQ":
+            assert seed["options"]
+            assert len(seed["options"]) >= 2
+            assert seed["correct_answer"] in seed["options"]
+
+
+def test_seed_questions_are_loaded_into_question_bank():
+    """All curated seed questions are persisted in the question bank."""
+    from app.db.seed_questions import SEED_QUESTIONS, SEED_SKILLS
+
+    db = SessionLocal()
+
+    try:
+        skills = {
+            skill.name: skill.id
+            for skill in db.query(Skill)
+            .filter(Skill.name.in_(SEED_SKILLS))
+            .all()
+        }
+
+        assert set(skills) == set(SEED_SKILLS)
+
+        for seed in SEED_QUESTIONS:
+            question = (
+                db.query(Question)
+                .filter(
+                    Question.skill_id == skills[seed["skill"]],
+                    Question.question_text
+                    == seed["question_text"],
+                )
+                .first()
+            )
+
+            assert question is not None
+            assert question.question_type == seed["question_type"]
+            assert question.difficulty == seed["difficulty"]
+
+            if seed["question_type"] == "MCQ":
+                assert question.options == seed["options"]
+                assert question.correct_answer == seed["correct_answer"]
+
+    finally:
+        db.close()
+
+def test_seed_questions_are_idempotent():
+    """Running the seed process twice does not create duplicates."""
+    from app.db.seed_questions import (
+        SEED_QUESTIONS,
+        SEED_SKILLS,
+        seed_questions,
+    )
+
+    db = SessionLocal()
+
+    try:
+        before_count = (
+            db.query(Question)
+            .join(Skill, Question.skill_id == Skill.id)
+            .filter(
+                Skill.name.in_(SEED_SKILLS),
+                Question.question_text.in_(
+                    [
+                        seed["question_text"]
+                        for seed in SEED_QUESTIONS
+                    ]
+                ),
+            )
+            .count()
+        )
+    finally:
+        db.close()
+
+    seed_questions()
+    seed_questions()
+
+    db = SessionLocal()
+
+    try:
+        after_count = (
+            db.query(Question)
+            .join(Skill, Question.skill_id == Skill.id)
+            .filter(
+                Skill.name.in_(SEED_SKILLS),
+                Question.question_text.in_(
+                    [
+                        seed["question_text"]
+                        for seed in SEED_QUESTIONS
+                    ]
+                ),
+            )
+            .count()
+        )
+
+        assert after_count == before_count
+    finally:
+        db.close()
+def test_seed_questions_are_idempotent():
+    """Running the seed process twice does not create duplicates."""
+    from app.db.seed_questions import (
+        SEED_QUESTIONS,
+        SEED_SKILLS,
+        seed_questions,
+    )
+
+    expected_count = len(SEED_QUESTIONS)
+
+    db = SessionLocal()
+
+    try:
+        before_count = (
+            db.query(Question)
+            .join(Skill, Question.skill_id == Skill.id)
+            .filter(
+                Skill.name.in_(SEED_SKILLS),
+                Question.question_text.in_(
+                    [
+                        seed["question_text"]
+                        for seed in SEED_QUESTIONS
+                    ]
+                ),
+            )
+            .count()
+        )
+
+        assert before_count == expected_count
+    finally:
+        db.close()
+
+    seed_questions()
+    seed_questions()
+
+    db = SessionLocal()
+
+    try:
+        after_count = (
+            db.query(Question)
+            .join(Skill, Question.skill_id == Skill.id)
+            .filter(
+                Skill.name.in_(SEED_SKILLS),
+                Question.question_text.in_(
+                    [
+                        seed["question_text"]
+                        for seed in SEED_QUESTIONS
+                    ]
+                ),
+            )
+            .count()
+        )
+
+        assert after_count == expected_count
+        assert after_count == before_count
+    finally:
+        db.close()
