@@ -226,3 +226,13 @@ test_jd.pdf
 reset_admin.py
 reset_candidate.py
 reset_recruiter.py
+# Local IDE files
+.vscode/
+
+# Local Python environments
+backend/venv/
+backend/.venv/
+
+# Temporary test scripts
+test_*.py
+sync_*.py
