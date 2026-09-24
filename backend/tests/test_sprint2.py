@@ -44,6 +44,16 @@ RECRUITER_PASSWORD = os.getenv(
     "recruiter",
 )
 
+ASSESSMENT_MANAGER_EMAIL = os.getenv(
+    "TEST_ASSESSMENT_MANAGER_EMAIL",
+    "s4_assessment_manager@test.com",
+)
+
+ASSESSMENT_MANAGER_PASSWORD = os.getenv(
+    "TEST_ASSESSMENT_MANAGER_PASSWORD",
+    "Test@12345",
+)
+
 
 def login_recruiter() -> str:
     """Authenticate a recruiter and return the bearer token."""
@@ -52,6 +62,21 @@ def login_recruiter() -> str:
         json={
             "email": RECRUITER_EMAIL,
             "password": RECRUITER_PASSWORD,
+        },
+    )
+
+    assert response.status_code == 200
+
+    return response.json()["access_token"]
+
+
+def login_assessment_manager() -> str:
+    """Authenticate an Assessment Manager and return the bearer token."""
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": ASSESSMENT_MANAGER_EMAIL,
+            "password": ASSESSMENT_MANAGER_PASSWORD,
         },
     )
 
@@ -198,6 +223,7 @@ def test_empty_job_description_returns_empty_skills():
 
     assert result.model_dump() == {
         "skills": [],
+        "experience_required": None
     }
 
 
@@ -232,7 +258,8 @@ def test_skill_names_are_normalized_and_duplicates_removed():
                 "name": "fastapi",
                 "category": "Framework",
             },
-        ]
+        ],
+        "experience_required": None
     }
 
 
@@ -266,7 +293,10 @@ def test_skill_extraction_endpoint_returns_structured_skills(
 
     with patch(
         "app.api.routes.jobs.extract_and_save_job_skills",
-        return_value=fake_skills,
+        return_value=SkillExtractionResponse(
+            skills=fake_skills,
+            experience_required=None,
+        ),
     ):
         response = client.post(
             f"/jobs/{test_job.id}/skills/extract",
@@ -289,6 +319,7 @@ def test_skill_extraction_endpoint_returns_structured_skills(
                 "category": "Framework",
             },
         ],
+        "experience_required": None,
     }
 
 
@@ -347,6 +378,7 @@ def test_job_description_with_no_identifiable_skills_returns_empty_list():
 
     assert result.model_dump() == {
         "skills": [],
+        "experience_required": None
     }
 
 
@@ -531,6 +563,7 @@ def test_recruiter_cannot_extract_skills_for_another_recruiters_job():
         test_email = f"s2-other-recruiter-{uuid4().hex[:8]}@test.com"
 
         other_recruiter = User(
+            username=f"s2-other-recruiter-{uuid4().hex[:8]}",
             email=test_email,
             password_hash="test-only-password-hash",
             role="recruiter",
@@ -729,7 +762,8 @@ def test_llm_call_uses_prepared_text_and_structured_output():
                 "name": "python",
                 "category": "Programming Language",
             }
-        ]
+        ],
+        "experience_required": None
     }
 
     mock_post.assert_called_once()
@@ -1108,7 +1142,8 @@ def test_empty_skill_names_are_removed():
                 "name": "python",
                 "category": "Programming Language",
             }
-        ]
+        ],
+        "experience_required": None
     }
 
 
@@ -1136,6 +1171,7 @@ def test_empty_llm_output_returns_empty_skills():
 
     assert result.model_dump() == {
         "skills": [],
+        "experience_required": None
     }
 
 
@@ -1162,7 +1198,8 @@ def test_overly_long_skill_name_is_removed():
                 "name": "python",
                 "category": "Programming Language",
             }
-        ]
+        ],
+        "experience_required": None
     }
 
 
@@ -1700,8 +1737,8 @@ def test_create_question_endpoint_requires_authentication(
 
 
 def test_create_question_endpoint_creates_mcq(test_skill):
-    """Recruiter can create an MCQ through the API."""
-    token = login_recruiter()
+    """Assessment Manager can create an MCQ through the API."""
+    token = login_assessment_manager()
 
     response = client.post(
         "/questions",
@@ -1767,8 +1804,8 @@ def test_get_questions_endpoint_returns_filtered_results(
     test_question,
     test_skill,
 ):
-    """Recruiter can retrieve questions using all supported filters."""
-    token = login_recruiter()
+    """Assessment Manager can retrieve questions using all supported filters."""
+    token = login_assessment_manager()
 
     response = client.get(
         "/questions",
@@ -1803,7 +1840,7 @@ def test_get_questions_endpoint_returns_filtered_results(
 
 def test_get_questions_endpoint_rejects_invalid_question_type():
     """GET /questions rejects unsupported question types."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     response = client.get(
         "/questions",
@@ -1824,7 +1861,7 @@ def test_get_questions_endpoint_rejects_invalid_question_type():
 
 def test_get_questions_endpoint_rejects_invalid_difficulty():
     """GET /questions rejects unsupported difficulty values."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     response = client.get(
         "/questions",
@@ -1847,8 +1884,8 @@ def test_update_question_endpoint_updates_existing_question(
     test_question,
     test_skill,
 ):
-    """Recruiter can update an existing question through the API."""
-    token = login_recruiter()
+    """Assessment Manager can update an existing question through the API."""
+    token = login_assessment_manager()
 
     response = client.put(
         f"/questions/{test_question.id}",
@@ -1918,7 +1955,7 @@ def test_update_question_endpoint_rejects_invalid_mcq_answer(
     test_skill,
 ):
     """Question update endpoint rejects an invalid MCQ answer."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     response = client.put(
         f"/questions/{test_question.id}",
@@ -1953,7 +1990,7 @@ def test_updated_question_is_persisted_in_database(
     test_skill,
 ):
     """Updated Question Bank data is persisted in PostgreSQL."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     response = client.put(
         f"/questions/{test_question.id}",
@@ -2096,7 +2133,7 @@ def test_candidate_cannot_update_question(
         db.close()
 def test_update_question_endpoint_returns_404_for_missing_question():
     """PUT /questions/{id} returns 404 when the question does not exist."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     response = client.put(
         "/questions/999999999",
@@ -2122,7 +2159,7 @@ def test_failed_question_update_does_not_modify_existing_question(
     test_question,
 ):
     """A failed question update does not modify the existing record."""
-    token = login_recruiter()
+    token = login_assessment_manager()
 
     original_text = test_question.question_text
     original_type = test_question.question_type

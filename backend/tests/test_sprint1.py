@@ -100,7 +100,12 @@ def test_create_job_with_invalid_request_body_returns_422():
 
 def test_get_job_with_invalid_id_returns_422():
     """Non-integer path parameters are rejected by request validation."""
-    response = client.get("/jobs/not-an-integer")
+    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+
+    response = client.get(
+        "/jobs/not-an-integer",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 422
 
@@ -139,7 +144,12 @@ def test_admin_users_requires_authentication():
 
 def test_get_nonexistent_job():
     """Missing jobs return a clear 404 response."""
-    response = client.get("/jobs/999999999")
+    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+
+    response = client.get(
+        "/jobs/999999999",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Job not found"
@@ -230,7 +240,7 @@ def test_admin_login():
 
     assert data["access_token"]
     assert data["user_id"] == 3
-    assert data["role"] == "admin"
+    assert data["role"] == "organization_admin"
     assert data["token_type"] == "bearer"
 
 
@@ -507,7 +517,12 @@ def test_recruiter_can_create_job():
 
 def test_get_jobs():
     """Job collection endpoint returns a list."""
-    response = client.get("/jobs")
+    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+
+    response = client.get(
+        "/jobs",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 200
     assert isinstance(response.json(), list)
@@ -532,7 +547,10 @@ def test_get_created_job():
 
     job_id = create_response.json()["id"]
 
-    response = client.get(f"/jobs/{job_id}")
+    response = client.get(
+        f"/jobs/{job_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert response.status_code == 200
 

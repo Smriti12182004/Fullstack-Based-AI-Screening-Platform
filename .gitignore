@@ -234,5 +234,7 @@ backend/venv/
 backend/.venv/
 
 # Temporary test scripts
-test_*.py
 sync_*.py
+node_modules/
+
+

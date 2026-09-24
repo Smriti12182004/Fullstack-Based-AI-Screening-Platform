@@ -1,23 +1,36 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Literal
 
 
 class JobCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=255)
-    description: str = Field(min_length=20)
+    title: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+    description: str = Field(
+        min_length=20,
+    )
+    experience_required: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+    )
 
 
 class JobResponse(BaseModel):
     id: int
     title: str
     description: str
+    experience_required: str | None = None
     created_by: int
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
 
 class SkillExtractionSchema(BaseModel):
@@ -40,10 +53,14 @@ class SkillExtractionSchema(BaseModel):
 class SkillExtractionResponseSchema(BaseModel):
     job_id: int
     skills: list[SkillExtractionSchema]
+    experience_required: str | None = None
 
 
 class SkillReviewSkillSchema(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(
+        min_length=1,
+        max_length=100,
+    )
 
 
 class SkillReviewUpdateSchema(BaseModel):
@@ -64,3 +81,43 @@ class SkillReviewConfirmResponseSchema(BaseModel):
     skills: list[SkillReviewSkillSchema]
     reviewed_by: int
     reviewed_at: datetime
+
+
+# ---------------------------------------------------------
+# Job Description Generation
+# ---------------------------------------------------------
+
+
+class JobDescriptionGenerationRequest(BaseModel):
+    title: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+    skills: list[str] = Field(
+        min_length=1,
+        max_length=50,
+    )
+    experience_required: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+    max_words: int = Field(
+        default=300,
+        ge=50,
+        le=2000,
+    )
+    output_format: Literal[
+        "paragraphs",
+        "bullets",
+        "mixed",
+    ] = "mixed"
+    additional_instructions: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
+
+
+class JobDescriptionGenerationResponse(BaseModel):
+    title: str
+    description: str
+    word_count: int

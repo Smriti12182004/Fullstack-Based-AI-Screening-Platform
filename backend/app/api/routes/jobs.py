@@ -1,6 +1,13 @@
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
@@ -9,13 +16,19 @@ from app.db.session import get_db
 from app.models import Job, User
 from app.schemas.job import (
     JobCreate,
+    JobDescriptionGenerationRequest,
+    JobDescriptionGenerationResponse,
     JobResponse,
     SkillExtractionResponseSchema,
     SkillReviewConfirmResponseSchema,
     SkillReviewResponseSchema,
     SkillReviewUpdateSchema,
 )
-from app.services.llm_service import LLMServiceError
+from app.services.llm_service import (
+    LLMServiceError,
+    count_words,
+    generate_job_description,
+)
 from app.services.skill_review_service import (
     SkillReviewError,
     confirm_job_skill_review,
@@ -53,6 +66,7 @@ def create_job(
     new_job = Job(
         title=job.title,
         description=job.description,
+        experience_required=job.experience_required,
         created_by=current_user["user_id"],
     )
 
@@ -96,7 +110,10 @@ def upload_job_description(
         )
 
     if file.content_type == "text/plain":
-        description = content.decode("utf-8", errors="ignore").strip()
+        description = content.decode(
+            "utf-8",
+            errors="ignore",
+        ).strip()
     else:
         try:
             reader = PdfReader(BytesIO(content))
@@ -104,16 +121,22 @@ def upload_job_description(
                 page.extract_text() or ""
                 for page in reader.pages
             ).strip()
-        except Exception:
+        except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Unable to extract text from the uploaded PDF.",
-            )
+                detail=(
+                    "Unable to extract text from "
+                    "the uploaded PDF."
+                ),
+            ) from exc
 
     if len(description) < 20:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Job description must contain at least 20 characters.",
+            detail=(
+                "Job description must contain at least "
+                "20 characters."
+            ),
         )
 
     user = db.get(User, current_user["user_id"])
@@ -133,6 +156,7 @@ def upload_job_description(
     new_job = Job(
         title=title[:255],
         description=description,
+        experience_required=None,
         created_by=current_user["user_id"],
     )
 
@@ -141,6 +165,50 @@ def upload_job_description(
     db.refresh(new_job)
 
     return new_job
+
+
+# ---------------------------------------------------------
+# Generate Job Description from Skills and Experience
+# ---------------------------------------------------------
+
+@router.post(
+    "/generate-description",
+    response_model=JobDescriptionGenerationResponse,
+)
+def generate_job_description_endpoint(
+    request: JobDescriptionGenerationRequest,
+    current_user: dict = Depends(require_role("recruiter")),
+):
+    try:
+        description = generate_job_description(
+            title=request.title,
+            skills=request.skills,
+            experience_required=request.experience_required,
+            max_words=request.max_words,
+            output_format=request.output_format,
+            additional_instructions=request.additional_instructions,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    except LLMServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Job description generation service is "
+                "currently unavailable."
+            ),
+        ) from exc
+
+    return JobDescriptionGenerationResponse(
+        title=request.title,
+        description=description,
+        word_count=count_words(description),
+    )
 
 
 @router.post(
@@ -163,17 +231,24 @@ def extract_job_skills(
     if job.created_by != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not allowed to extract skills for this job.",
+            detail=(
+                "You are not allowed to extract skills "
+                "for this job."
+            ),
         )
 
     try:
-        skills = extract_and_save_job_skills(db, job)
+        extraction = extract_and_save_job_skills(
+            db,
+            job,
+        )
 
         # Every fresh extraction must be reviewed again.
         review = get_or_create_review(db, job.id)
         review.status = "pending"
         review.reviewed_by = None
         review.reviewed_at = None
+
         db.commit()
 
     except ValueError as exc:
@@ -182,11 +257,14 @@ def extract_job_skills(
             detail=str(exc),
         ) from exc
 
-    except LLMServiceError:
+    except LLMServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Skill extraction service is currently unavailable.",
-        )
+            detail=(
+                "Skill extraction service is currently "
+                "unavailable."
+            ),
+        ) from exc
 
     return SkillExtractionResponseSchema(
         job_id=job.id,
@@ -195,8 +273,9 @@ def extract_job_skills(
                 "name": skill.name,
                 "category": skill.category,
             }
-            for skill in skills
+            for skill in extraction.skills
         ],
+        experience_required=extraction.experience_required,
     )
 
 
@@ -220,17 +299,29 @@ def get_skill_review(
     if job.created_by != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not allowed to review skills for this job.",
+            detail=(
+                "You are not allowed to review skills "
+                "for this job."
+            ),
         )
 
-    review = get_or_create_review(db, job.id)
-    skills = get_job_skills(db, job.id)
+    review = get_or_create_review(
+        db,
+        job.id,
+    )
+
+    skills = get_job_skills(
+        db,
+        job.id,
+    )
 
     return SkillReviewResponseSchema(
         job_id=job.id,
         status=review.status,
         skills=[
-            {"name": skill.name}
+            {
+                "name": skill.name,
+            }
             for skill in skills
         ],
         reviewed_by=review.reviewed_by,
@@ -259,7 +350,10 @@ def update_skill_review(
     if job.created_by != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not allowed to edit skills for this job.",
+            detail=(
+                "You are not allowed to edit skills "
+                "for this job."
+            ),
         )
 
     try:
@@ -272,20 +366,30 @@ def update_skill_review(
             ],
             reviewer_id=current_user["user_id"],
         )
+
     except SkillReviewError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
-    review = get_or_create_review(db, job.id)
-    skills = get_job_skills(db, job.id)
+    review = get_or_create_review(
+        db,
+        job.id,
+    )
+
+    skills = get_job_skills(
+        db,
+        job.id,
+    )
 
     return SkillReviewResponseSchema(
         job_id=job.id,
         status=review.status,
         skills=[
-            {"name": skill.name}
+            {
+                "name": skill.name,
+            }
             for skill in skills
         ],
         reviewed_by=review.reviewed_by,
@@ -313,7 +417,10 @@ def confirm_skill_review(
     if job.created_by != current_user["user_id"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not allowed to confirm skills for this job.",
+            detail=(
+                "You are not allowed to confirm skills "
+                "for this job."
+            ),
         )
 
     try:
@@ -322,19 +429,25 @@ def confirm_skill_review(
             job_id=job.id,
             reviewer_id=current_user["user_id"],
         )
+
     except SkillReviewError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
-    skills = get_job_skills(db, job.id)
+    skills = get_job_skills(
+        db,
+        job.id,
+    )
 
     return SkillReviewConfirmResponseSchema(
         job_id=job.id,
         status="confirmed",
         skills=[
-            {"name": skill.name}
+            {
+                "name": skill.name,
+            }
             for skill in skills
         ],
         reviewed_by=review.reviewed_by,
@@ -348,8 +461,27 @@ def confirm_skill_review(
 )
 def get_jobs(
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("recruiter")),
 ):
-    return db.query(Job).all()
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    return (
+        db.query(Job)
+        .filter(
+            Job.created_by == current_user["user_id"]
+        )
+        .order_by(Job.created_at.desc())
+        .all()
+    )
 
 
 @router.get(
@@ -359,8 +491,27 @@ def get_jobs(
 def get_job(
     job_id: int,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("recruiter")),
 ):
-    job = db.get(Job, job_id)
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    job = (
+        db.query(Job)
+        .filter(
+            Job.id == job_id,
+            Job.created_by == current_user["user_id"],
+        )
+        .first()
+    )
 
     if job is None:
         raise HTTPException(
