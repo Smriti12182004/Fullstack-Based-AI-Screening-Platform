@@ -5,13 +5,17 @@ from app.core.dependencies import require_role
 from app.db.session import get_db
 from app.models.user import User
 
-router = APIRouter(prefix="/admin", tags=["Admin"])
+
+router = APIRouter(
+    prefix="/admin",
+    tags=["Admin"],
+)
 
 
 @router.get("/users")
 def get_users(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("admin")),
+    current_user: dict = Depends(require_role("organization_admin")),
 ):
     users = db.query(User).order_by(User.id).all()
 

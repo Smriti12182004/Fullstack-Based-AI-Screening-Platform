@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Job, JobSkill, Skill
 from app.services.llm_service import (
-    ExtractedSkill,
+    SkillExtractionResponse,
     extract_skills_from_jd,
     normalize_extracted_skills,
 )
@@ -12,8 +12,12 @@ from app.services.llm_service import (
 def extract_and_save_job_skills(
     db: Session,
     job: Job,
-) -> list[ExtractedSkill]:
-    """Extract skills and synchronize the job's stored skill links."""
+) -> SkillExtractionResponse:
+    """
+    Extract skills and experience from the job description,
+    normalize the extracted data, synchronize the job's stored
+    skill links, and persist the extracted experience.
+    """
 
     extraction = extract_skills_from_jd(job.description)
     normalized = normalize_extracted_skills(extraction)
@@ -44,7 +48,9 @@ def extract_and_save_job_skills(
             )
 
             if skill is None:
-                skill = Skill(name=extracted_skill.name)
+                skill = Skill(
+                    name=extracted_skill.name,
+                )
                 db.add(skill)
                 db.flush()
 
@@ -65,10 +71,13 @@ def extract_and_save_job_skills(
                     )
                 )
 
+        # Persist the experience extracted from the JD.
+        job.experience_required = normalized.experience_required
+
         db.commit()
 
     except SQLAlchemyError:
         db.rollback()
         raise
 
-    return normalized.skills
+    return normalized
