@@ -60,6 +60,8 @@ class QuestionResponse(QuestionBase):
 
     source: str
 
+    version: int
+
     explanation: str | None = None
 
     rejection_reason: str | None = None
@@ -73,6 +75,38 @@ class QuestionResponse(QuestionBase):
     created_at: datetime
 
     updated_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
+
+class QuestionVersionResponse(BaseModel):
+    id: int
+
+    question_id: int
+
+    version: int
+
+    question_text: str
+
+    question_type: QuestionType
+
+    skill_id: int
+
+    difficulty: Difficulty
+
+    options: list[str] | None = None
+
+    correct_answer: str | None = None
+
+    explanation: str | None = None
+
+    source: str
+
+    changed_by: int | None = None
+
+    created_at: datetime
 
     model_config = ConfigDict(
         from_attributes=True,
