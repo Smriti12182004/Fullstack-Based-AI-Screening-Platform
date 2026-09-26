@@ -4,11 +4,18 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models import Job, Question, Skill
+from app.models import (
+    Job,
+    Question,
+    QuestionVersion,
+    Skill,
+)
+
 from app.services.llm_service import (
     LLMServiceError,
     generate_questions_from_skills,
 )
+
 from app.services.skill_review_service import (
     are_job_skills_confirmed,
     get_job_skills,
@@ -53,6 +60,32 @@ def _get_existing_question_keys(
     }
 
 
+def _create_question_version(
+    db: Session,
+    question: Question,
+    changed_by: int | None,
+) -> QuestionVersion:
+    """Persist the current question content as a version snapshot."""
+
+    version = QuestionVersion(
+        question_id=question.id,
+        version=question.version,
+        question_text=question.question_text,
+        question_type=question.question_type,
+        skill_id=question.skill_id,
+        difficulty=question.difficulty,
+        options=question.options,
+        correct_answer=question.correct_answer,
+        explanation=question.explanation,
+        source=question.source,
+        changed_by=changed_by,
+    )
+
+    db.add(version)
+
+    return version
+
+
 def create_question(
     db: Session,
     question_text: str,
@@ -67,8 +100,9 @@ def create_question(
     Create and persist a question-bank record.
 
     Newly created questions enter the maker-checker workflow
-    in pending_review status.
+    in pending_review status and receive version 1.
     """
+
     normalized_type = question_type.strip().upper()
     normalized_difficulty = difficulty.strip().lower()
     normalized_text = question_text.strip()
@@ -127,14 +161,23 @@ def create_question(
         status="pending_review",
         source="manual",
         explanation=None,
+        rejection_reason=None,
         created_by=created_by,
         reviewed_by=None,
         reviewed_at=None,
-        rejection_reason=None,
+        version=1,
     )
 
     try:
         db.add(question)
+        db.flush()
+
+        _create_question_version(
+            db=db,
+            question=question,
+            changed_by=created_by,
+        )
+
         db.commit()
         db.refresh(question)
 
@@ -155,6 +198,7 @@ def get_questions(
     difficulty: str | None = None,
 ) -> list[Question]:
     """Retrieve questions with optional filters."""
+
     query = db.query(Question)
 
     if skill_id is not None:
@@ -165,7 +209,10 @@ def get_questions(
     if question_type is not None:
         normalized_type = question_type.strip().upper()
 
-        if normalized_type not in {"MCQ", "FREE_TEXT"}:
+        if normalized_type not in {
+            "MCQ",
+            "FREE_TEXT",
+        }:
             raise QuestionServiceError(
                 "Question type must be MCQ or FREE_TEXT."
             )
@@ -190,7 +237,9 @@ def get_questions(
             Question.difficulty == normalized_difficulty
         )
 
-    return query.order_by(Question.id).all()
+    return query.order_by(
+        Question.id
+    ).all()
 
 
 def update_question(
@@ -207,9 +256,10 @@ def update_question(
     """
     Update an existing question.
 
-    Any content update sends the question back through
-    the maker-checker workflow.
+    Every content update creates a new question version and
+    returns the question to pending_review.
     """
+
     question = db.get(
         Question,
         question_id,
@@ -249,7 +299,10 @@ def update_question(
             "Question text cannot be empty."
         )
 
-    if normalized_type not in {"MCQ", "FREE_TEXT"}:
+    if normalized_type not in {
+        "MCQ",
+        "FREE_TEXT",
+    }:
         raise QuestionServiceError(
             "Question type must be MCQ or FREE_TEXT."
         )
@@ -288,6 +341,8 @@ def update_question(
         options = None
         correct_answer = None
 
+    next_version = question.version + 1
+
     question.question_text = normalized_text
     question.question_type = normalized_type
     question.skill_id = final_skill_id
@@ -295,13 +350,23 @@ def update_question(
     question.options = options
     question.correct_answer = correct_answer
 
-    # Any edit requires a fresh review.
+    # Any content edit requires a fresh review.
     question.status = "pending_review"
     question.reviewed_by = None
     question.reviewed_at = None
     question.rejection_reason = None
 
+    question.version = next_version
+
     try:
+        db.flush()
+
+        _create_question_version(
+            db=db,
+            question=question,
+            changed_by=updated_by,
+        )
+
         db.commit()
         db.refresh(question)
 
@@ -324,6 +389,7 @@ def generate_questions(
     created_by: int | None = None,
 ) -> list[Question]:
     """Generate AI-created MCQs from the confirmed skills for a job."""
+
     job = db.get(
         Job,
         job_id,
@@ -414,7 +480,7 @@ def generate_questions(
         {
             "skill_id": skill.id,
             "skill_name": skill.name,
-            "category":"Other",
+            "category": "Other",
         }
         for skill in selected_skills
     ]
@@ -501,10 +567,20 @@ def generate_questions(
                 reviewed_by=None,
                 reviewed_at=None,
                 rejection_reason=None,
+                version=1,
             )
 
             db.add(question)
             questions.append(question)
+
+        db.flush()
+
+        for question in questions:
+            _create_question_version(
+                db=db,
+                question=question,
+                changed_by=created_by,
+            )
 
         db.commit()
 
@@ -531,6 +607,7 @@ def approve_question(
     reviewer_id: int,
 ) -> Question:
     """Approve a question that is currently pending review."""
+
     question = db.get(
         Question,
         question_id,
@@ -577,6 +654,7 @@ def reject_question(
     rejection_reason: str,
 ) -> Question:
     """Reject a question that is currently pending review."""
+
     question = db.get(
         Question,
         question_id,
