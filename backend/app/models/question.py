@@ -121,6 +121,7 @@ class Question(Base):
     version: Mapped[int] = mapped_column(
         nullable=False,
         default=1,
+        server_default="1",
     )
 
     created_at: Mapped[datetime] = mapped_column(
