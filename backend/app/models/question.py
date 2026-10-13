@@ -19,6 +19,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.question_section import QuestionSection
+    from app.models.question_version import QuestionVersion
 
 
 class Question(Base):
@@ -113,6 +114,16 @@ class Question(Base):
         nullable=True,
     )
 
+    # ---------------------------------------------------------
+    # Question content version
+    # ---------------------------------------------------------
+
+    version: Mapped[int] = mapped_column(
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -129,4 +140,11 @@ class Question(Base):
     question_sections: Mapped[list["QuestionSection"]] = relationship(
         "QuestionSection",
         back_populates="question",
+    )
+
+    versions: Mapped[list["QuestionVersion"]] = relationship(
+        "QuestionVersion",
+        back_populates="question",
+        cascade="all, delete-orphan",
+        order_by="QuestionVersion.version",
     )

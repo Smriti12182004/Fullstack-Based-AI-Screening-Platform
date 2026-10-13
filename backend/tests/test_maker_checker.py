@@ -1,189 +1,687 @@
-import sys
-from pathlib import Path
+"""S4-01 automated maker-checker workflow tests."""
+
 from uuid import uuid4
 
-import requests
+import pytest
 
-# Allow imports from backend/app
-BACKEND_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BACKEND_DIR))
-
+from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.models import Question
+from app.models import Question, Skill, User
+from app.services.question_service import (
+    QuestionServiceError,
+    approve_question,
+    create_question,
+    reject_question,
+)
 
 
-BASE_URL = "http://127.0.0.1:8000"
-
-MANAGER_EMAIL = "s4_assessment_manager@test.com"
-REVIEWER_EMAIL = "s4_assessment_reviewer@test.com"
-PASSWORD = "Test@12345"
-
-SKILL_ID = 4
+TEST_PASSWORD = "Test@12345"
 
 
-def login(email: str) -> str:
-    response = requests.post(
-        f"{BASE_URL}/auth/login",
-        json={
-            "email": email,
-            "password": PASSWORD,
-        },
-        timeout=10,
+def create_test_user(db, role: str) -> User:
+    """Create an isolated test user."""
+    unique_id = uuid4().hex[:10]
+
+    user = User(
+        username=f"s4_{role}_{unique_id}",
+        email=f"s4_{role}_{unique_id}@test.com",
+        password_hash=hash_password(TEST_PASSWORD),
+        role=role,
+        is_email_verified=True,
     )
 
-    print(f"LOGIN {email}: {response.status_code}")
-    print(response.text)
+    db.add(user)
+    db.flush()
 
-    response.raise_for_status()
-
-    data = response.json()
-
-    assert data["access_token"]
-    return data["access_token"]
+    return user
 
 
-def main() -> None:
-    # ---------------------------------------------------------
-    # 1. Login as Assessment Manager
-    # ---------------------------------------------------------
-    manager_token = login(MANAGER_EMAIL)
+def create_test_skill(db) -> Skill:
+    """Create an isolated test skill."""
+    skill = Skill(
+        name=f"s4-maker-checker-skill-{uuid4().hex[:10]}",
+    )
 
-    manager_headers = {
-        "Authorization": f"Bearer {manager_token}",
-    }
+    db.add(skill)
+    db.flush()
 
-    # ---------------------------------------------------------
-    # 2. Login as Assessment Reviewer
-    # ---------------------------------------------------------
-    reviewer_token = login(REVIEWER_EMAIL)
+    return skill
 
-    reviewer_headers = {
-        "Authorization": f"Bearer {reviewer_token}",
-    }
 
-    # ---------------------------------------------------------
-    # 3. Assessment Manager creates a question
-    # ---------------------------------------------------------
-    unique_id = uuid4().hex[:8]
-
-    payload = {
-        "question_text": (
-            f"Maker checker test question {unique_id}: "
+def create_test_question(
+    db,
+    *,
+    creator_id: int,
+    skill_id: int,
+) -> Question:
+    """Create a pending-review question through the service."""
+    return create_question(
+        db=db,
+        question_text=(
+            f"S4-01 maker-checker question "
+            f"{uuid4().hex[:10]}: "
             "Which Python collection stores unique values?"
         ),
-        "question_type": "MCQ",
-        "skill_id": SKILL_ID,
-        "difficulty": "easy",
-        "options": [
+        question_type="MCQ",
+        skill_id=skill_id,
+        difficulty="easy",
+        options=[
             "List",
             "Tuple",
             "Set",
             "Dictionary",
         ],
-        "correct_answer": "Set",
-    }
-
-    create_response = requests.post(
-        f"{BASE_URL}/questions",
-        headers=manager_headers,
-        json=payload,
-        timeout=10,
+        correct_answer="Set",
+        created_by=creator_id,
     )
 
-    print("\nCREATE QUESTION")
-    print(create_response.status_code)
-    print(create_response.text)
 
-    assert create_response.status_code == 201, (
-        f"Question creation failed: "
-        f"{create_response.status_code} {create_response.text}"
-    )
+def test_manager_created_question_starts_pending_review():
+    """A newly created question must enter the review workflow."""
 
-    created_question = create_response.json()
-
-    question_id = created_question["id"]
-
-    assert created_question["status"] == "pending_review"
-    assert created_question["created_by"] is not None
-    assert created_question["reviewed_by"] is None
-    assert created_question["reviewed_at"] is None
-
-    print(f"\nCreated Question ID: {question_id}")
-    print("Status: pending_review")
-    print(f"Created By: {created_question['created_by']}")
-
-    # ---------------------------------------------------------
-    # 4. Assessment Manager must NOT approve own question
-    # ---------------------------------------------------------
-    manager_approve_response = requests.post(
-        f"{BASE_URL}/questions/{question_id}/approve",
-        headers=manager_headers,
-        timeout=10,
-    )
-
-    print("\nMANAGER SELF-APPROVAL")
-    print(manager_approve_response.status_code)
-    print(manager_approve_response.text)
-
-    assert manager_approve_response.status_code == 403
-
-    # ---------------------------------------------------------
-    # 5. Assessment Reviewer approves the question
-    # ---------------------------------------------------------
-    reviewer_approve_response = requests.post(
-        f"{BASE_URL}/questions/{question_id}/approve",
-        headers=reviewer_headers,
-        timeout=10,
-    )
-
-    print("\nREVIEWER APPROVAL")
-    print(reviewer_approve_response.status_code)
-    print(reviewer_approve_response.text)
-
-    assert reviewer_approve_response.status_code == 200
-
-    approved_question = reviewer_approve_response.json()
-
-    assert approved_question["status"] == "approved"
-    assert approved_question["reviewed_by"] is not None
-    assert approved_question["reviewed_at"] is not None
-
-    print("\nApproval successful.")
-    print(f"Status: {approved_question['status']}")
-    print(f"Created By: {approved_question['created_by']}")
-    print(f"Reviewed By: {approved_question['reviewed_by']}")
-    print(f"Reviewed At: {approved_question['reviewed_at']}")
-
-    # ---------------------------------------------------------
-    # 6. Verify audit fields directly in database
-    # ---------------------------------------------------------
     db = SessionLocal()
 
+    manager = None
+    skill = None
+    question = None
+
     try:
-        question = db.get(Question, question_id)
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
 
-        assert question is not None
+        skill = create_test_skill(db)
 
-        print("\nDATABASE VERIFICATION")
-        print(f"Question ID: {question.id}")
-        print(f"Status: {question.status}")
-        print(f"Created By: {question.created_by}")
-        print(f"Reviewed By: {question.reviewed_by}")
-        print(f"Reviewed At: {question.reviewed_at}")
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        assert question.id is not None
+        assert question.status == "pending_review"
+        assert question.created_by == manager.id
+        assert question.reviewed_by is None
+        assert question.reviewed_at is None
+        assert question.rejection_reason is None
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
+
+
+def test_question_creator_cannot_approve_own_question():
+    """The question creator must not be able to approve their own question."""
+
+    db = SessionLocal()
+
+    manager = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        with pytest.raises(
+            QuestionServiceError,
+            match="cannot approve their own question",
+        ):
+            approve_question(
+                db=db,
+                question_id=question.id,
+                reviewer_id=manager.id,
+            )
+
+        db.refresh(question)
+
+        assert question.status == "pending_review"
+        assert question.reviewed_by is None
+        assert question.reviewed_at is None
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
+
+
+def test_reviewer_can_approve_question_and_audit_fields_are_recorded():
+    """A different reviewer can approve a pending question."""
+
+    db = SessionLocal()
+
+    manager = None
+    reviewer = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        reviewer = create_test_user(
+            db,
+            "assessment_reviewer",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        approved_question = approve_question(
+            db=db,
+            question_id=question.id,
+            reviewer_id=reviewer.id,
+        )
+
+        assert approved_question.status == "approved"
+        assert approved_question.created_by == manager.id
+        assert approved_question.reviewed_by == reviewer.id
+        assert approved_question.reviewed_at is not None
+        assert approved_question.rejection_reason is None
+
+        db.refresh(question)
 
         assert question.status == "approved"
-        assert question.created_by is not None
-        assert question.reviewed_by is not None
+        assert question.reviewed_by == reviewer.id
         assert question.reviewed_at is not None
         assert question.created_by != question.reviewed_by
 
     finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if reviewer is not None and reviewer.id is not None:
+            db.query(User).filter(
+                User.id == reviewer.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
         db.close()
 
-    print("\n========================================")
-    print("MAKER-CHECKER TEST PASSED")
-    print("========================================")
+
+def test_question_creator_cannot_reject_own_question():
+    """The question creator must not be able to reject their own question."""
+
+    db = SessionLocal()
+
+    manager = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        with pytest.raises(
+            QuestionServiceError,
+            match="cannot reject their own question",
+        ):
+            reject_question(
+                db=db,
+                question_id=question.id,
+                reviewer_id=manager.id,
+                rejection_reason=(
+                    "Manager must not reject own question."
+                ),
+            )
+
+        db.refresh(question)
+
+        assert question.status == "pending_review"
+        assert question.reviewed_by is None
+        assert question.reviewed_at is None
+        assert question.rejection_reason is None
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
 
 
-if __name__ == "__main__":
-    main()
+def test_reviewer_can_reject_question_and_reason_is_recorded():
+    """A reviewer can reject a pending question with a reason."""
+
+    db = SessionLocal()
+
+    manager = None
+    reviewer = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        reviewer = create_test_user(
+            db,
+            "assessment_reviewer",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        rejection_reason = (
+            "The question is too basic for the configured "
+            "assessment difficulty."
+        )
+
+        rejected_question = reject_question(
+            db=db,
+            question_id=question.id,
+            reviewer_id=reviewer.id,
+            rejection_reason=rejection_reason,
+        )
+
+        assert rejected_question.status == "rejected"
+        assert rejected_question.created_by == manager.id
+        assert rejected_question.reviewed_by == reviewer.id
+        assert rejected_question.reviewed_at is not None
+        assert rejected_question.rejection_reason == rejection_reason
+
+        db.refresh(question)
+
+        assert question.status == "rejected"
+        assert question.reviewed_by == reviewer.id
+        assert question.reviewed_at is not None
+        assert question.rejection_reason == rejection_reason
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if reviewer is not None and reviewer.id is not None:
+            db.query(User).filter(
+                User.id == reviewer.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
+
+
+def test_rejection_requires_a_non_empty_reason():
+    """A rejection without a meaningful reason must fail."""
+
+    db = SessionLocal()
+
+    manager = None
+    reviewer = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        reviewer = create_test_user(
+            db,
+            "assessment_reviewer",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        with pytest.raises(
+            QuestionServiceError,
+            match="Rejection reason is required",
+        ):
+            reject_question(
+                db=db,
+                question_id=question.id,
+                reviewer_id=reviewer.id,
+                rejection_reason="   ",
+            )
+
+        db.refresh(question)
+
+        assert question.status == "pending_review"
+        assert question.reviewed_by is None
+        assert question.reviewed_at is None
+        assert question.rejection_reason is None
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if reviewer is not None and reviewer.id is not None:
+            db.query(User).filter(
+                User.id == reviewer.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
+
+
+def test_approved_question_cannot_be_approved_again():
+    """Approval is only valid from the pending_review state."""
+
+    db = SessionLocal()
+
+    manager = None
+    reviewer = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        reviewer = create_test_user(
+            db,
+            "assessment_reviewer",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        approve_question(
+            db=db,
+            question_id=question.id,
+            reviewer_id=reviewer.id,
+        )
+
+        with pytest.raises(
+            QuestionServiceError,
+            match="Only questions pending review can be approved",
+        ):
+            approve_question(
+                db=db,
+                question_id=question.id,
+                reviewer_id=reviewer.id,
+            )
+
+        db.refresh(question)
+
+        assert question.status == "approved"
+        assert question.reviewed_by == reviewer.id
+        assert question.reviewed_at is not None
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if reviewer is not None and reviewer.id is not None:
+            db.query(User).filter(
+                User.id == reviewer.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()
+
+
+def test_rejected_question_cannot_be_rejected_again():
+    """Rejection is only valid from the pending_review state."""
+
+    db = SessionLocal()
+
+    manager = None
+    reviewer = None
+    skill = None
+    question = None
+
+    try:
+        manager = create_test_user(
+            db,
+            "assessment_manager",
+        )
+
+        reviewer = create_test_user(
+            db,
+            "assessment_reviewer",
+        )
+
+        skill = create_test_skill(db)
+
+        question = create_test_question(
+            db,
+            creator_id=manager.id,
+            skill_id=skill.id,
+        )
+
+        rejection_reason = "Question requires revision."
+
+        reject_question(
+            db=db,
+            question_id=question.id,
+            reviewer_id=reviewer.id,
+            rejection_reason=rejection_reason,
+        )
+
+        with pytest.raises(
+            QuestionServiceError,
+            match="Only questions pending review can be rejected",
+        ):
+            reject_question(
+                db=db,
+                question_id=question.id,
+                reviewer_id=reviewer.id,
+                rejection_reason="Second rejection attempt.",
+            )
+
+        db.refresh(question)
+
+        assert question.status == "rejected"
+        assert question.reviewed_by == reviewer.id
+        assert question.reviewed_at is not None
+        assert question.rejection_reason == rejection_reason
+
+    finally:
+        if question is not None and question.id is not None:
+            db.query(Question).filter(
+                Question.id == question.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if skill is not None and skill.id is not None:
+            db.query(Skill).filter(
+                Skill.id == skill.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if reviewer is not None and reviewer.id is not None:
+            db.query(User).filter(
+                User.id == reviewer.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if manager is not None and manager.id is not None:
+            db.query(User).filter(
+                User.id == manager.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        db.commit()
+        db.close()

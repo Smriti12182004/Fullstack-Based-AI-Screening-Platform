@@ -13,6 +13,7 @@ from app.schemas.question import (
     QuestionRejectRequest,
     QuestionResponse,
     QuestionUpdate,
+    QuestionVersionResponse,
 )
 from app.models.job_assessment_access import JobAssessmentAccess
 from app.schemas.question_section import (
@@ -32,6 +33,10 @@ from app.services.question_service import (
 from app.services.question_section_service import (
     QuestionSectionServiceError,
     add_question_to_section,
+)
+from app.services.question_version_service import (
+    QuestionVersionServiceError,
+    get_question_versions,
 )
 from app.services.semantic_retrieval_service import (
     SemanticRetrievalError,
@@ -83,7 +88,10 @@ def create_question_endpoint(
         require_role("assessment_manager")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -121,7 +129,10 @@ def generate_questions_endpoint(
         require_role("assessment_manager")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -129,7 +140,10 @@ def generate_questions_endpoint(
             detail="User not found",
         )
 
-    job = db.get(Job, request.job_id)
+    job = db.get(
+        Job,
+        request.job_id,
+    )
 
     if job is None:
         raise HTTPException(
@@ -138,23 +152,26 @@ def generate_questions_endpoint(
         )
 
     access = (
-    db.query(JobAssessmentAccess)
-    .filter(
-        JobAssessmentAccess.job_id == job.id,
-        JobAssessmentAccess.user_id == current_user["user_id"],
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == job.id,
+            JobAssessmentAccess.user_id
+            == current_user["user_id"],
+        )
+        .first()
     )
-    .first()
-)
 
     if (
         job.created_by != current_user["user_id"]
         and access is None
-        ):
+    ):
         raise HTTPException(
-
-     status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not allowed to generate questions for this job.",
-          )
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You are not allowed to generate questions "
+                "for this job."
+            ),
+        )
 
     try:
         questions = generate_questions(
@@ -165,15 +182,19 @@ def generate_questions_endpoint(
             difficulty=request.difficulty,
             created_by=current_user["user_id"],
         )
+
     except QuestionServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+
     except LLMServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Question generation service is currently unavailable.",
+            detail=(
+                "Question generation service is currently unavailable."
+            ),
         ) from exc
 
     return QuestionGenerationResponse(
@@ -196,7 +217,10 @@ def add_question_to_section_endpoint(
         require_role("assessment_manager")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -210,6 +234,7 @@ def add_question_to_section_endpoint(
             question_id=data.question_id,
             section_id=data.section_id,
         )
+
     except QuestionSectionServiceError as exc:
         if str(exc) == "Section not found.":
             raise HTTPException(
@@ -245,7 +270,10 @@ def get_questions_endpoint(
         )
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -260,6 +288,7 @@ def get_questions_endpoint(
             question_type=question_type,
             difficulty=difficulty,
         )
+
     except QuestionServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -301,7 +330,10 @@ def semantic_search_questions_endpoint(
     rejected content is reflected immediately in this MVP implementation.
     """
 
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -311,7 +343,9 @@ def semantic_search_questions_endpoint(
 
     approved_questions = (
         db.query(Question)
-        .filter(Question.status == "approved")
+        .filter(
+            Question.status == "approved"
+        )
         .all()
     )
 
@@ -346,6 +380,52 @@ def semantic_search_questions_endpoint(
     ]
 
 
+@router.get(
+    "/{question_id}/versions",
+    response_model=list[QuestionVersionResponse],
+)
+def get_question_versions_endpoint(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_any_role(
+            "assessment_manager",
+            "assessment_reviewer",
+        )
+    ),
+):
+    """Return the immutable content history for a question."""
+
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    try:
+        return get_question_versions(
+            db=db,
+            question_id=question_id,
+        )
+
+    except QuestionVersionServiceError as exc:
+        if str(exc) == "Question not found.":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+
 @router.put(
     "/{question_id}",
     response_model=QuestionResponse,
@@ -358,7 +438,10 @@ def update_question_endpoint(
         require_role("assessment_manager")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -378,6 +461,7 @@ def update_question_endpoint(
             correct_answer=question.correct_answer,
             updated_by=current_user["user_id"],
         )
+
     except QuestionServiceError as exc:
         if str(exc) == "Question not found.":
             raise HTTPException(
@@ -402,7 +486,10 @@ def approve_question_endpoint(
         require_role("assessment_reviewer")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -416,6 +503,7 @@ def approve_question_endpoint(
             question_id=question_id,
             reviewer_id=current_user["user_id"],
         )
+
     except QuestionServiceError as exc:
         if str(exc) == "Question not found.":
             raise HTTPException(
@@ -441,7 +529,10 @@ def reject_question_endpoint(
         require_role("assessment_reviewer")
     ),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -456,6 +547,7 @@ def reject_question_endpoint(
             reviewer_id=current_user["user_id"],
             rejection_reason=data.rejection_reason,
         )
+
     except QuestionServiceError as exc:
         if str(exc) == "Question not found.":
             raise HTTPException(

@@ -3,11 +3,18 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
-from app.models import User
+
+from app.models import (
+    JobAssessmentAccess,
+    QuestionSet,
+    User,
+)
+
 from app.schemas.question_set_configuration import (
     QuestionSetConfigurationCreate,
     QuestionSetConfigurationResponse,
 )
+
 from app.services.question_set_configuration_service import (
     QuestionSetConfigurationServiceError,
     configure_question_set,
@@ -44,6 +51,34 @@ def get_question_set_configuration_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
+        )
+
+    question_set = db.get(
+        QuestionSet,
+        question_set_id,
+    )
+
+    if question_set is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question set not found.",
+        )
+
+    access = (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == question_set.job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You are not authorized to view this question set."
+            ),
         )
 
     try:
@@ -92,6 +127,34 @@ def configure_question_set_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found.",
+        )
+
+    question_set = db.get(
+        QuestionSet,
+        question_set_id,
+    )
+
+    if question_set is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question set not found.",
+        )
+
+    access = (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == question_set.job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You are not authorized to configure this question set."
+            ),
         )
 
     try:
