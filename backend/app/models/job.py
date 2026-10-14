@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from app.db.timestamps import utc_now
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -31,10 +31,29 @@ class Job(Base):
         nullable=False,
     )
 
+    # Original uploaded JD document. Nullable because TXT/manual jobs
+    # do not have an original PDF.
+    original_document_data: Mapped[bytes | None] = mapped_column(
+        LargeBinary,
+        nullable=True,
+    )
+
+    original_document_filename: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    original_document_content_type: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    # Stored as text because the JD may specify values such as:
+    # "0 years", "Fresher", "2-4 years", "3+ years", or "5 years".
     experience_required: Mapped[str | None] = mapped_column(
-    String(100),
-    nullable=True,
-)
+        String(100),
+        nullable=True,
+    )
 
     skills: Mapped[list["Skill"]] = relationship(
         secondary="job_skills",

@@ -64,6 +64,8 @@ function AdminDashboard() {
   };
 
   const getDisplayName = () => {
+    const savedName = auth?.full_name?.trim();
+    if (savedName) return savedName;
     const email = auth?.email || "";
 
     if (!email) {

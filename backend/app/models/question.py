@@ -1,17 +1,17 @@
 from datetime import datetime
-
 from typing import TYPE_CHECKING
 
 from app.db.timestamps import utc_now
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     JSON,
+    SmallInteger,
     String,
     Text,
 )
-
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -20,10 +20,22 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.question_section import QuestionSection
     from app.models.question_version import QuestionVersion
+    from app.models.question_bank import QuestionBank
 
 
 class Question(Base):
     __tablename__ = "questions"
+
+    __table_args__ = (
+        CheckConstraint(
+            "manager_rating IS NULL OR manager_rating BETWEEN 1 AND 3",
+            name="ck_questions_manager_rating",
+        ),
+        CheckConstraint(
+            "reviewer_rating IS NULL OR reviewer_rating BETWEEN 1 AND 3",
+            name="ck_questions_reviewer_rating",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -40,11 +52,18 @@ class Question(Base):
         nullable=False,
     )
 
+    # Semantic section purpose is independent from difficulty.
+    # Supported values: conceptual, implementation, free_text.
+    section_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="conceptual",
+        server_default="conceptual",
+        index=True,
+    )
+
     skill_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "skills.id",
-            ondelete="RESTRICT",
-        ),
+        ForeignKey("skills.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -87,24 +106,33 @@ class Question(Base):
         nullable=True,
     )
 
-    # ---------------------------------------------------------
-    # Question ownership and review audit
-    # ---------------------------------------------------------
+    # Manager and reviewer quality ratings: 1 to 3, or NULL if unrated.
+    manager_rating: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
+    )
 
+    reviewer_rating: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        nullable=True,
+    )
+
+    # Year-specific question bank.
+    question_bank_id: Mapped[int | None] = mapped_column(
+        ForeignKey("question_banks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Question ownership and review audit.
     created_by: Mapped[int | None] = mapped_column(
-        ForeignKey(
-            "users.id",
-            ondelete="SET NULL",
-        ),
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
     reviewed_by: Mapped[int | None] = mapped_column(
-        ForeignKey(
-            "users.id",
-            ondelete="SET NULL",
-        ),
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -114,10 +142,7 @@ class Question(Base):
         nullable=True,
     )
 
-    # ---------------------------------------------------------
-    # Question content version
-    # ---------------------------------------------------------
-
+    # Question content version.
     version: Mapped[int] = mapped_column(
         nullable=False,
         default=1,
@@ -135,6 +160,12 @@ class Question(Base):
         nullable=False,
         default=utc_now,
         onupdate=utc_now,
+    )
+
+    # Relationships.
+    question_bank: Mapped["QuestionBank | None"] = relationship(
+        "QuestionBank",
+        back_populates="questions",
     )
 
     question_sections: Mapped[list["QuestionSection"]] = relationship(

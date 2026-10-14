@@ -18,6 +18,7 @@ from app.models import (
     QuestionSet,
     QuestionSetConfiguration,
     Section,
+    SectionSkill,
     Skill,
     User,
 )
@@ -103,17 +104,45 @@ def test_assessment_manager_can_assemble_assessment():
         db.add(question_set)
         db.flush()
 
-        db.add(
-            Section(
-                question_set_id=question_set.id,
-                skill_id=skill.id,
-                name="API Assembly",
-                display_order=1,
-                easy_count=1,
-                medium_count=1,
-                hard_count=0,
-                is_locked=False,
-            )
+        # Easy section: 1 question for the skill.
+        easy_section = Section(
+            question_set_id=question_set.id,
+            name="API Assembly - Easy",
+            difficulty="easy",
+            display_order=1,
+            is_locked=False,
+        )
+
+        # Medium section: 1 question for the same skill.
+        medium_section = Section(
+            question_set_id=question_set.id,
+            name="API Assembly - Medium",
+            difficulty="medium",
+            display_order=2,
+            is_locked=False,
+        )
+
+        db.add_all(
+            [
+                easy_section,
+                medium_section,
+            ]
+        )
+        db.flush()
+
+        db.add_all(
+            [
+                SectionSkill(
+                    section_id=easy_section.id,
+                    skill_id=skill.id,
+                    question_count=1,
+                ),
+                SectionSkill(
+                    section_id=medium_section.id,
+                    skill_id=skill.id,
+                    question_count=1,
+                ),
+            ]
         )
 
         db.add(
@@ -203,11 +232,17 @@ def test_assessment_manager_can_assemble_assessment():
         ) == 2
 
         print()
-        print("API ASSEMBLY ASSESSMENT ID:", assessment_id)
-        print("API ASSEMBLY QUESTION IDS:", [
-            row.question_id
-            for row in persisted_rows
-        ])
+        print(
+            "API ASSEMBLY ASSESSMENT ID:",
+            assessment_id,
+        )
+        print(
+            "API ASSEMBLY QUESTION IDS:",
+            [
+                row.question_id
+                for row in persisted_rows
+            ],
+        )
         print("ASSESSMENT API TEST PASSED")
 
     finally:
@@ -226,6 +261,25 @@ def test_assessment_manager_can_assemble_assessment():
             )
 
         if question_set is not None:
+            section_ids = [
+                section.id
+                for section in (
+                    db.query(Section)
+                    .filter(
+                        Section.question_set_id
+                        == question_set.id
+                    )
+                    .all()
+                )
+            ]
+
+            if section_ids:
+                db.query(SectionSkill).filter(
+                    SectionSkill.section_id.in_(section_ids)
+                ).delete(
+                    synchronize_session=False
+                )
+
             db.query(QuestionSetConfiguration).filter(
                 QuestionSetConfiguration.question_set_id
                 == question_set.id
@@ -234,7 +288,8 @@ def test_assessment_manager_can_assemble_assessment():
             )
 
             db.query(Section).filter(
-                Section.question_set_id == question_set.id
+                Section.question_set_id
+                == question_set.id
             ).delete(
                 synchronize_session=False
             )
@@ -247,19 +302,22 @@ def test_assessment_manager_can_assemble_assessment():
 
         if job is not None:
             db.query(JobAssessmentAccess).filter(
-                JobAssessmentAccess.job_id == job.id
+                JobAssessmentAccess.job_id
+                == job.id
             ).delete(
                 synchronize_session=False
             )
 
             db.query(JobSkillReview).filter(
-                JobSkillReview.job_id == job.id
+                JobSkillReview.job_id
+                == job.id
             ).delete(
                 synchronize_session=False
             )
 
             db.query(JobSkill).filter(
-                JobSkill.job_id == job.id
+                JobSkill.job_id
+                == job.id
             ).delete(
                 synchronize_session=False
             )
@@ -355,8 +413,7 @@ def test_assessment_manager_without_job_access_is_forbidden():
 
         assert response.status_code == 403
         assert response.json()["detail"] == (
-            "You are not authorized to assemble an "
-            "assessment for this job."
+            "You are not authorized to manage assessments for this job."
         )
 
     finally:

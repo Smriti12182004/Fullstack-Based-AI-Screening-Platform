@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
+  ArrowLeft,
   Bot,
+  CalendarDays,
   CheckCircle2,
+  ChevronRight,
   ClipboardCheck,
-  Clock3,
   FileText,
   History,
+  Lock,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
   UserRound,
   X,
@@ -20,541 +24,2088 @@ import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import RecruiterLayout from "../layouts/RecruiterLayout";
 
-const VALID_DIFFICULTIES = ["easy", "medium", "hard"];
-const VALID_QUESTION_TYPES = ["MCQ", "FREE_TEXT"];
+function MetaCard({ label, value }) {
+  return (
+    <div className="rounded-xl border border-[#EEF0F3] bg-[#FAFBFC] px-3 py-2.5">
+      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-[#98A2B3]">
+        {label}
+      </p>
+
+      <p className="mt-1 text-sm font-semibold text-[#344054]">
+        {value ?? "—"}
+      </p>
+    </div>
+  );
+}
+
+function LoadingPanel({ text = "Loading..." }) {
+  return (
+    <div className="rounded-[18px] border border-[#E3E6EB] bg-white p-8 text-center shadow-[0_8px_26px_rgba(27,37,58,0.035)]">
+      <RefreshCw
+        size={22}
+        className="mx-auto animate-spin text-[#5658E8]"
+      />
+
+      <p className="mt-3 text-sm font-semibold text-[#475467]">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function EmptyPanel({ title, description }) {
+  return (
+    <div className="rounded-[18px] border border-dashed border-[#CBD2DD] bg-white p-10 text-center">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#F4F5F8] text-[#667085]">
+        <ClipboardCheck size={20} />
+      </div>
+
+      <h3 className="mt-4 text-lg font-semibold text-[#202938]">
+        {title}
+      </h3>
+
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[#98A2B3]">
+        {description}
+      </p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const normalized = String(
+    status || "unknown"
+  ).toLowerCase();
+
+  let label = status || "Unknown";
+  let className =
+    "bg-[#F4F5F8] text-[#667085]";
+
+  if (
+    normalized ===
+    "submitted_for_review"
+  ) {
+    label = "Submitted for review";
+    className =
+      "bg-[#EAE5F9] text-[#5658E8]";
+  } else if (
+    normalized === "approved"
+  ) {
+    label = "Approved";
+    className =
+      "bg-[#E2F3EA] text-[#28734E]";
+  } else if (
+    normalized === "rejected"
+  ) {
+    label = "Rejected";
+    className =
+      "bg-[#FFF0F0] text-[#A83E3E]";
+  } else if (
+    normalized === "draft"
+  ) {
+    label = "Draft";
+    className =
+      "bg-[#F4F5F8] text-[#667085]";
+  }
+
+  return (
+    <span
+      className={`rounded-full px-2.5 py-1.5 text-[10px] font-bold ${className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function getSetLabel(setItem) {
+  const explicitLabel = String(
+    setItem?.label || ""
+  ).trim();
+
+  if (explicitLabel) {
+    return explicitLabel
+      .replace(/^set\s+/i, "Set ");
+  }
+
+  const variant = Number(
+    setItem?.variant_number
+  );
+
+  if (variant === 1) {
+    return "Set A";
+  }
+
+  if (variant === 2) {
+    return "Set B";
+  }
+
+  return `Set ${
+    setItem?.variant_number ?? "—"
+  }`;
+}
+
+function getQuestionId(question) {
+  return (
+    question?.question_id ??
+    question?.id ??
+    null
+  );
+}
+
+function getSetState(setItem) {
+  const status = String(
+    setItem?.status || "draft"
+  ).toLowerCase();
+
+  if (
+    status ===
+    "submitted_for_review"
+  ) {
+    return {
+      openable: true,
+      title: "Ready for review",
+      reason:
+        setItem?.lock_reason ||
+        "The Assessment Manager has submitted this set for independent review.",
+      button: `Open ${getSetLabel(
+        setItem
+      )}`,
+    };
+  }
+
+  if (status === "draft") {
+    return {
+      openable: false,
+      title: "Waiting for submission",
+      reason:
+        setItem?.lock_reason ||
+        "The Assessment Manager has not submitted this set for review yet.",
+      button:
+        "Locked — not submitted",
+    };
+  }
+
+  if (status === "rejected") {
+    return {
+      openable: false,
+      title: "Needs revision",
+      reason:
+        setItem?.lock_reason ||
+        "This set was rejected and must be revised before it can be submitted again.",
+      button:
+        "Locked — needs revision",
+    };
+  }
+
+  if (status === "approved") {
+    return {
+      openable: false,
+      title: "Already approved",
+      reason:
+        "This set has already completed reviewer approval.",
+      button:
+        "Locked — already approved",
+    };
+  }
+
+  return {
+    openable: false,
+    title: "Not available",
+    reason:
+      setItem?.lock_reason ||
+      "This set is not currently available for reviewer action.",
+    button: "Locked",
+  };
+}
+
+function getCompletedSetState(setItem) {
+  const status = String(
+    setItem?.status || ""
+  ).toLowerCase();
+
+  if (status === "approved") {
+    return {
+      openable: true,
+      title: "Completed review — approved",
+      reason:
+        setItem?.review_comment ||
+        "This assessment set was approved and is available as a read-only review record.",
+      button: "Open completed review",
+    };
+  }
+
+  if (status === "rejected") {
+    return {
+      openable: true,
+      title: "Completed review — rejected",
+      reason:
+        setItem?.review_comment ||
+        "This assessment set was rejected and is available as a read-only review record.",
+      button: "Open completed review",
+    };
+  }
+
+  return {
+    openable: false,
+    title: "Not in review history",
+    reason:
+      "Only completed assessment-set reviews can be opened from review history.",
+    button: "Locked",
+  };
+}
 
 function ReviewerWorkspace() {
   const navigate = useNavigate();
+
   const { logout } = useAuth();
 
-  const [questions, setQuestions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [
+    assessmentQueue,
+    setAssessmentQueue,
+  ] = useState([]);
 
-  const [error, setError] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [actionSuccess, setActionSuccess] = useState("");
+  const [
+    completedQueue,
+    setCompletedQueue,
+  ] = useState([]);
 
-  const [search, setSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [difficultyFilter, setDifficultyFilter] = useState("all");
+  const [
+    reviewMode,
+    setReviewMode,
+  ] = useState("active");
 
-  const [selectedQuestion, setSelectedQuestion] = useState(null);
-  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState("");
+  const [
+    historyLoaded,
+    setHistoryLoaded,
+  ] = useState(false);
 
-  const [versionHistory, setVersionHistory] = useState([]);
-  const [versionHistoryLoading, setVersionHistoryLoading] =
-    useState(false);
-  const [versionHistoryError, setVersionHistoryError] = useState("");
-  const [isVersionHistoryOpen, setIsVersionHistoryOpen] =
-    useState(false);
-  const [versionHistoryQuestion, setVersionHistoryQuestion] =
-    useState(null);
+  const [
+    selectedJob,
+    setSelectedJob,
+  ] = useState(null);
 
-  const [approvingId, setApprovingId] = useState(null);
-  const [rejectingId, setRejectingId] = useState(null);
+  const [
+    selectedSet,
+    setSelectedSet,
+  ] = useState(null);
 
-  const getErrorMessage = (err, fallback) => {
-    const detail = err.response?.data?.detail;
+  const [
+    selectedSection,
+    setSelectedSection,
+  ] = useState(null);
+
+  const [stage, setStage] =
+    useState("jobs");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [
+    loadingSet,
+    setLoadingSet,
+  ] = useState(false);
+
+  const [
+    historyLoading,
+    setHistoryLoading,
+  ] = useState(false);
+
+  const [
+    refreshing,
+    setRefreshing,
+  ] = useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const [
+    actionError,
+    setActionError,
+  ] = useState("");
+
+  const [
+    actionSuccess,
+    setActionSuccess,
+  ] = useState("");
+
+  const [jobSearch, setJobSearch] =
+    useState("");
+
+  const [
+    questionSearch,
+    setQuestionSearch,
+  ] = useState("");
+
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState("all");
+
+  const [
+    sourceFilter,
+    setSourceFilter,
+  ] = useState("all");
+
+  const [
+    rejectingQuestion,
+    setRejectingQuestion,
+  ] = useState(null);
+
+  const [
+    rejectingSet,
+    setRejectingSet,
+  ] = useState(false);
+
+  const [
+    rejectionReason,
+    setRejectionReason,
+  ] = useState("");
+
+  const [
+    approvingId,
+    setApprovingId,
+  ] = useState(null);
+
+  const [
+    rejectingId,
+    setRejectingId,
+  ] = useState(null);
+
+  const [
+    approvingSetId,
+    setApprovingSetId,
+  ] = useState(null);
+
+  const [
+    rejectingSetId,
+    setRejectingSetId,
+  ] = useState(null);
+
+  const [
+    sendingToHrSetId,
+    setSendingToHrSetId,
+  ] = useState(null);
+
+  const [
+    versionQuestion,
+    setVersionQuestion,
+  ] = useState(null);
+
+  const [versions, setVersions] =
+    useState([]);
+
+  const [
+    versionsLoading,
+    setVersionsLoading,
+  ] = useState(false);
+
+  const [
+    versionsError,
+    setVersionsError,
+  ] = useState("");
+
+  const getErrorMessage = (
+    err,
+    fallback
+  ) => {
+    const detail =
+      err?.response?.data?.detail;
 
     if (Array.isArray(detail)) {
-      return detail
+      const message = detail
         .map((item) => {
-          if (typeof item === "string") {
+          if (
+            typeof item ===
+            "string"
+          ) {
             return item;
           }
 
-          return item?.msg || JSON.stringify(item);
+          return (
+            item?.msg ||
+            JSON.stringify(item)
+          );
         })
         .filter(Boolean)
         .join(" ");
+
+      if (message) {
+        return message;
+      }
     }
 
-    if (typeof detail === "string") {
+    if (
+      typeof detail ===
+        "string" &&
+      detail.trim()
+    ) {
       return detail;
+    }
+
+    if (
+      err?.code ===
+      "ERR_NETWORK"
+    ) {
+      return "Unable to reach the backend server. Make sure FastAPI is running.";
+    }
+
+    if (
+      err?.code ===
+      "ECONNABORTED"
+    ) {
+      return "The backend request timed out.";
     }
 
     return fallback;
   };
 
-  const handleUnauthorized = (err) => {
+  const handleUnauthorized = (
+    err
+  ) => {
     if (
-      err.response?.status === 401 ||
-      err.response?.status === 403
+      err?.response?.status ===
+      401
     ) {
       logout();
-      navigate("/login", { replace: true });
+
+      navigate("/login", {
+        replace: true,
+      });
+
       return true;
     }
 
     return false;
   };
 
-  const loadQuestions = async (showRefreshState = false) => {
+  const loadQueue =
+    async () => {
+      const response =
+        await api.get(
+          "/assessment-reviews/sets/queue"
+        );
+
+      const data = Array.isArray(
+        response.data
+      )
+        ? response.data
+        : [];
+
+      setAssessmentQueue(
+        data
+      );
+
+      return data;
+    };
+
+  const loadCompletedQueue =
+    async () => {
+      try {
+        setHistoryLoading(
+          true
+        );
+
+        const response =
+          await api.get(
+            "/assessment-reviews/sets/completed"
+          );
+
+        const data =
+          Array.isArray(
+            response.data
+          )
+            ? response.data
+            : [];
+
+        setCompletedQueue(
+          data
+        );
+
+        setHistoryLoaded(
+          true
+        );
+
+        return data;
+      } catch (err) {
+        console.error(
+          "Failed to load completed review history:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to load completed review history."
+            )
+          );
+        }
+
+        return null;
+      } finally {
+        setHistoryLoading(
+          false
+        );
+      }
+    };
+
+  const loadSet = async (
+    assessmentSetId,
+    silent = false
+  ) => {
     try {
-      setError("");
+      if (!silent) {
+        setLoadingSet(true);
+      }
+
+      const response =
+        await api.get(
+          `/assessment-reviews/sets/${assessmentSetId}`
+        );
+
+      const data =
+        response.data || null;
+
+      setSelectedSet(data);
+
+      return data;
+    } catch (err) {
+      console.error(
+        "Failed to load AssessmentSet:",
+        err
+      );
+
+      if (
+        !handleUnauthorized(
+          err
+        )
+      ) {
+        setActionError(
+          getErrorMessage(
+            err,
+            "Unable to open this Assessment Set."
+          )
+        );
+      }
+
+      return null;
+    } finally {
+      if (!silent) {
+        setLoadingSet(false);
+      }
+    }
+  };
+
+  const loadCompletedSet =
+    async (
+      assessmentSetId,
+      silent = false
+    ) => {
+      try {
+        if (!silent) {
+          setLoadingSet(true);
+        }
+
+        const response =
+          await api.get(
+            `/assessment-reviews/sets/completed/${assessmentSetId}`
+          );
+
+        const data =
+          response.data || null;
+
+        setSelectedSet(data);
+
+        return data;
+      } catch (err) {
+        console.error(
+          "Failed to load completed AssessmentSet review:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to open this completed Assessment Set review."
+            )
+          );
+        }
+
+        return null;
+      } finally {
+        if (!silent) {
+          setLoadingSet(false);
+        }
+      }
+    };
+
+  const switchReviewMode =
+    async (mode) => {
+      setReviewMode(
+        mode
+      );
+
+      setSelectedJob(
+        null
+      );
+
+      setSelectedSet(
+        null
+      );
+
+      setSelectedSection(
+        null
+      );
+
       setActionError("");
 
-      if (showRefreshState) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+      setActionSuccess("");
 
-      const response = await api.get("/questions");
+      setJobSearch("");
 
-      const questionData = Array.isArray(response.data)
-        ? response.data
-        : [];
+      setQuestionSearch("");
 
-      setQuestions(questionData);
-    } catch (err) {
-      console.error("Failed to load questions for review:", err);
-
-      if (handleUnauthorized(err)) {
-        return;
-      }
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to load questions for review."
-        )
+      setStage(
+        "jobs"
       );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+
+      if (mode === "completed") {
+        if (!historyLoaded) {
+          await loadCompletedQueue();
+        }
+      } else {
+        try {
+          await loadQueue();
+        } catch (err) {
+          console.error(
+            "Failed to refresh active review queue:",
+            err
+          );
+
+          if (
+            !handleUnauthorized(
+              err
+            )
+          ) {
+            setActionError(
+              getErrorMessage(
+                err,
+                "Unable to load the active review queue."
+              )
+            );
+          }
+        }
+      }
+    };
+
+  const loadWorkspace =
+    async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        await loadQueue();
+      } catch (err) {
+        console.error(
+          "Failed to load reviewer workspace:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setError(
+            getErrorMessage(
+              err,
+              "Unable to load the reviewer workspace."
+            )
+          );
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
 
   useEffect(() => {
-    loadQuestions();
+    loadWorkspace();
   }, []);
 
-  const pendingQuestions = useMemo(() => {
-    return questions.filter(
-      (question) => question.status === "pending_review"
-    );
-  }, [questions]);
+  const jobs = useMemo(
+    () => {
+      const groups =
+        new Map();
 
-  const approvedQuestions = useMemo(() => {
-    return questions.filter(
-      (question) => question.status === "approved"
-    );
-  }, [questions]);
+      const queue =
+        reviewMode === "completed"
+          ? completedQueue
+          : assessmentQueue;
 
-  const rejectedQuestions = useMemo(() => {
-    return questions.filter(
-      (question) => question.status === "rejected"
-    );
-  }, [questions]);
+      queue.forEach(
+        (item) => {
+          const jobId =
+            item?.job_id;
 
-  const aiPendingQuestions = useMemo(() => {
-    return pendingQuestions.filter(
-      (question) => question.source === "ai_generated"
-    );
-  }, [pendingQuestions]);
+          if (
+            jobId === null ||
+            jobId === undefined
+          ) {
+            return;
+          }
 
-  const getReviewChecks = (question) => {
-    const isMcq = question.question_type === "MCQ";
+          const key =
+            String(jobId);
 
-    const hasOptions =
-      Array.isArray(question.options) &&
-      question.options.length >= 2;
+          if (
+            !groups.has(key)
+          ) {
+            groups.set(
+              key,
+              {
+                job_id:
+                  jobId,
 
-    const hasAnswerKey =
-      !isMcq ||
-      Boolean(
-        question.correct_answer &&
-          Array.isArray(question.options) &&
-          question.options.includes(question.correct_answer)
-      );
+                job_title:
+                  item?.job_title ||
+                  `Job ${jobId}`,
 
-    return [
-      {
-        label: "Question text",
-        passed: Boolean(
-          String(question.question_text || "").trim()
-        ),
-      },
-      {
-        label: "Question type",
-        passed: VALID_QUESTION_TYPES.includes(
-          question.question_type
-        ),
-      },
-      {
-        label: "Skill mapping",
-        passed:
-          Number.isInteger(question.skill_id) &&
-          question.skill_id > 0,
-      },
-      {
-        label: "Difficulty",
-        passed: VALID_DIFFICULTIES.includes(
-          String(question.difficulty || "").toLowerCase()
-        ),
-      },
-      {
-        label: isMcq ? "MCQ options" : "Free-text structure",
-        passed: isMcq ? hasOptions : !question.options,
-      },
-      {
-        label: isMcq ? "Answer key" : "Response model",
-        passed: hasAnswerKey,
-      },
-    ];
-  };
+                question_set_name:
+                  item?.question_set
+                    ?.name ||
+                  "Assessment",
 
-  const getCheckSummary = (question) => {
-    const checks = getReviewChecks(question);
+                sets:
+                  new Map(),
+              }
+            );
+          }
 
-    const passedCount = checks.filter(
-      (check) => check.passed
-    ).length;
+          const group =
+            groups.get(key);
 
-    return {
-      checks,
-      passedCount,
-      totalCount: checks.length,
-      allPassed: passedCount === checks.length,
-    };
-  };
+          const variants =
+            Array.isArray(
+              item?.assessment_sets
+            ) &&
+            item.assessment_sets
+              .length > 0
+              ? item.assessment_sets
+              : [item];
 
-  const filteredQuestions = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+          variants.forEach(
+            (variant) => {
+              if (!variant?.id) {
+                return;
+              }
 
-    return pendingQuestions.filter((question) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        String(question.question_text || "")
-          .toLowerCase()
-          .includes(normalizedSearch) ||
-        String(question.skill_id || "")
-          .toLowerCase()
-          .includes(normalizedSearch);
+              const normalized =
+                {
+                  ...variant,
 
-      const matchesSource =
-        sourceFilter === "all" ||
-        question.source === sourceFilter;
+                  label:
+                    getSetLabel(
+                      variant
+                    ),
 
-      const matchesDifficulty =
-        difficultyFilter === "all" ||
-        String(question.difficulty || "").toLowerCase() ===
-          difficultyFilter;
+                  is_openable:
+                    reviewMode === "completed"
+                      ? [
+                          "approved",
+                          "rejected",
+                        ].includes(
+                          String(
+                            variant?.status ||
+                              ""
+                          ).toLowerCase()
+                        )
+                      : variant?.is_openable ===
+                          true ||
+                        variant?.status ===
+                          "submitted_for_review",
+                };
 
-      return (
-        matchesSearch &&
-        matchesSource &&
-        matchesDifficulty
-      );
-    });
-  }, [
-    pendingQuestions,
-    search,
-    sourceFilter,
-    difficultyFilter,
-  ]);
-
-  const openRejectModal = (question) => {
-    setSelectedQuestion(question);
-    setRejectionReason("");
-    setActionError("");
-    setIsRejectModalOpen(true);
-  };
-
-  const closeRejectModal = () => {
-    if (rejectingId !== null) {
-      return;
-    }
-
-    setIsRejectModalOpen(false);
-    setSelectedQuestion(null);
-    setRejectionReason("");
-  };
-
-  const closeVersionHistory = () => {
-    if (versionHistoryLoading) {
-      return;
-    }
-
-    setIsVersionHistoryOpen(false);
-    setVersionHistory([]);
-    setVersionHistoryError("");
-    setVersionHistoryQuestion(null);
-  };
-
-  const loadVersionHistory = async (question) => {
-    setVersionHistoryQuestion(question);
-    setVersionHistory([]);
-    setVersionHistoryError("");
-    setIsVersionHistoryOpen(true);
-    setVersionHistoryLoading(true);
-
-    try {
-      const response = await api.get(
-        `/questions/${question.id}/versions`
-      );
-
-      const historyData = Array.isArray(response.data)
-        ? response.data
-        : [];
-
-      setVersionHistory(historyData);
-    } catch (err) {
-      console.error(
-        "Failed to load question version history:",
-        err
-      );
-
-      if (handleUnauthorized(err)) {
-        return;
-      }
-
-      setVersionHistoryError(
-        getErrorMessage(
-          err,
-          "Unable to load question version history."
-        )
-      );
-    } finally {
-      setVersionHistoryLoading(false);
-    }
-  };
-
-  const areValuesEqual = (left, right) => {
-    if (
-      Array.isArray(left) ||
-      Array.isArray(right)
-    ) {
-      return JSON.stringify(left ?? null) ===
-        JSON.stringify(right ?? null);
-    }
-
-    return left === right;
-  };
-
-  const getChangedFields = (previousVersion, currentVersion) => {
-    if (!previousVersion) {
-      return ["Initial version"];
-    }
-
-    const fields = [
-      {
-        key: "question_text",
-        label: "Question text",
-      },
-      {
-        key: "question_type",
-        label: "Question type",
-      },
-      {
-        key: "skill_id",
-        label: "Skill",
-      },
-      {
-        key: "difficulty",
-        label: "Difficulty",
-      },
-      {
-        key: "options",
-        label: "Options",
-      },
-      {
-        key: "correct_answer",
-        label: "Answer key",
-      },
-      {
-        key: "explanation",
-        label: "Explanation",
-      },
-      {
-        key: "source",
-        label: "Source",
-      },
-    ];
-
-    return fields
-      .filter(
-        ({ key }) =>
-          !areValuesEqual(
-            previousVersion[key],
-            currentVersion[key]
-          )
-      )
-      .map(({ label }) => label);
-  };
-
-  const handleApprove = async (question) => {
-    setActionError("");
-    setActionSuccess("");
-    setApprovingId(question.id);
-
-    try {
-      await api.post(
-        `/questions/${question.id}/approve`
-      );
-
-      setActionSuccess(
-        "Question approved successfully and removed from the pending review queue."
-      );
-
-      await loadQuestions(true);
-    } catch (err) {
-      console.error(
-        "Failed to approve question:",
-        err
-      );
-
-      if (handleUnauthorized(err)) {
-        return;
-      }
-
-      setActionError(
-        getErrorMessage(
-          err,
-          "Unable to approve the question."
-        )
-      );
-    } finally {
-      setApprovingId(null);
-    }
-  };
-
-  const handleReject = async (event) => {
-    event.preventDefault();
-
-    if (!selectedQuestion) {
-      return;
-    }
-
-    const normalizedReason = rejectionReason.trim();
-
-    if (!normalizedReason) {
-      setActionError(
-        "Rejection reason is required."
-      );
-      return;
-    }
-
-    setActionError("");
-    setActionSuccess("");
-    setRejectingId(selectedQuestion.id);
-
-    try {
-      await api.post(
-        `/questions/${selectedQuestion.id}/reject`,
-        {
-          rejection_reason: normalizedReason,
+              group.sets.set(
+                Number(
+                  variant.id
+                ),
+                normalized
+              );
+            }
+          );
         }
       );
 
+      return Array.from(
+        groups.values()
+      )
+        .map((job) => ({
+          ...job,
+
+          sets: Array.from(
+            job.sets.values()
+          ).sort(
+            (left, right) =>
+              Number(
+                left?.variant_number ||
+                  0
+              ) -
+              Number(
+                right?.variant_number ||
+                  0
+              )
+          ),
+        }))
+        .sort(
+          (left, right) =>
+            String(
+              left.job_title
+            ).localeCompare(
+              String(
+                right.job_title
+              )
+            )
+        );
+    },
+    [
+      assessmentQueue,
+      completedQueue,
+      reviewMode,
+    ]
+  );
+
+  const filteredJobs =
+    useMemo(() => {
+      const query =
+        jobSearch
+          .trim()
+          .toLowerCase();
+
+      if (!query) {
+        return jobs;
+      }
+
+      return jobs.filter(
+        (job) => {
+          const values = [
+            job.job_title,
+            job.question_set_name,
+            ...job.sets.map(
+              (setItem) =>
+                setItem.label
+            ),
+          ];
+
+          return values.some(
+            (value) =>
+              String(
+                value ?? ""
+              )
+                .toLowerCase()
+                .includes(query)
+          );
+        }
+      );
+    }, [jobs, jobSearch]);
+
+  const sections = useMemo(
+    () => {
+      if (!selectedSet) {
+        return [];
+      }
+
+      const groups =
+        new Map();
+
+      const ensureSection =
+        (
+          key,
+          seed = {}
+        ) => {
+          const normalizedKey =
+            String(key);
+
+          if (
+            !groups.has(
+              normalizedKey
+            )
+          ) {
+            groups.set(
+              normalizedKey,
+              {
+                key:
+                  normalizedKey,
+
+                section_id:
+                  seed.section_id ??
+                  null,
+
+                name:
+                  seed.section_name ||
+                  seed.name ||
+                  "Section",
+
+                section_type:
+                  seed.section_type ||
+                  "—",
+
+                slots: [],
+
+                questions: [],
+              }
+            );
+          }
+
+          return groups.get(
+            normalizedKey
+          );
+        };
+
+      (
+        Array.isArray(
+          selectedSet.slots
+        )
+          ? selectedSet.slots
+          : []
+      ).forEach((slot) => {
+        const key =
+          slot?.section_id ??
+          slot?.section_name ??
+          slot?.id ??
+          "section";
+
+        ensureSection(
+          key,
+          {
+            section_id:
+              slot?.section_id,
+
+            section_name:
+              slot?.section_name,
+
+            name:
+              slot?.name,
+
+            section_type:
+              slot?.section_type,
+          }
+        ).slots.push(
+          slot
+        );
+      });
+
+      (
+        Array.isArray(
+          selectedSet.questions
+        )
+          ? selectedSet.questions
+          : []
+      ).forEach(
+        (question) => {
+          const key =
+            question?.section_id ??
+            question?.section_name ??
+            `slot-${question?.slot_id}`;
+
+          ensureSection(
+            key,
+            {
+              section_id:
+                question?.section_id,
+
+              section_name:
+                question?.section_name,
+
+              section_type:
+                question?.section_type,
+            }
+          ).questions.push(
+            question
+          );
+        }
+      );
+
+      return Array.from(
+        groups.values()
+      )
+        .map(
+          (section) => ({
+            ...section,
+
+            slotCount:
+              section.slots.length,
+
+            questionCount:
+              section.questions
+                .length,
+
+            pendingCount:
+              section.questions.filter(
+                (question) =>
+                  question?.status ===
+                  "pending_review"
+              ).length,
+
+            approvedCount:
+              section.questions.filter(
+                (question) =>
+                  question?.status ===
+                  "approved"
+              ).length,
+
+            rejectedCount:
+              section.questions.filter(
+                (question) =>
+                  question?.status ===
+                  "rejected"
+              ).length,
+          })
+        )
+        .sort(
+          (left, right) =>
+            Number(
+              left.section_id ||
+                999999
+            ) -
+            Number(
+              right.section_id ||
+                999999
+            )
+        );
+    },
+    [selectedSet]
+  );
+
+  const visibleQuestions =
+    useMemo(() => {
+      if (!selectedSection) {
+        return [];
+      }
+
+      const query =
+        questionSearch
+          .trim()
+          .toLowerCase();
+
+      return selectedSection.questions.filter(
+        (question) => {
+          const searchMatch =
+            !query ||
+            String(
+              question?.question_text ||
+                ""
+            )
+              .toLowerCase()
+              .includes(query) ||
+            String(
+              question?.skill_name ||
+                ""
+            )
+              .toLowerCase()
+              .includes(query) ||
+            String(
+              question?.difficulty ||
+                ""
+            )
+              .toLowerCase()
+              .includes(query);
+
+          const statusMatch =
+            statusFilter ===
+              "all" ||
+            String(
+              question?.status ||
+                ""
+            ).toLowerCase() ===
+              statusFilter;
+
+          const sourceMatch =
+            sourceFilter ===
+              "all" ||
+            String(
+              question?.source ||
+                ""
+            ).toLowerCase() ===
+              sourceFilter;
+
+          return (
+            searchMatch &&
+            statusMatch &&
+            sourceMatch
+          );
+        }
+      );
+    }, [
+      selectedSection,
+      questionSearch,
+      statusFilter,
+      sourceFilter,
+    ]);
+
+  const selectedSummary =
+    selectedSet?.summary ||
+    {};
+
+  const setIsSubmitted =
+    selectedSet?.status ===
+    "submitted_for_review";
+
+  const setIsApproved =
+    String(
+      selectedSet?.status || ""
+    ).toLowerCase() === "approved";
+
+  const sentToHr = Boolean(
+    selectedSet?.sent_to_hr ||
+    selectedSet?.sent_to_hr_at
+  );
+
+  const setApprovalReady =
+    setIsSubmitted &&
+    Number(
+      selectedSummary.total_slots ??
+        0
+    ) > 0 &&
+    Number(
+      selectedSummary.remaining_slots ??
+        0
+    ) === 0 &&
+    Number(
+      selectedSummary.pending_review ??
+        0
+    ) === 0 &&
+    Number(
+      selectedSummary.rejected ??
+        0
+    ) === 0 &&
+    Number(
+      selectedSummary.approved ??
+        0
+    ) ===
+      Number(
+        selectedSummary.total_slots ??
+          0
+      );
+
+  const currentJobTitle =
+    selectedJob?.job_title ||
+    selectedSet?.job?.title ||
+    "Published job";
+
+  const openJob = (
+    job
+  ) => {
+    setSelectedJob(
+      job
+    );
+
+    setSelectedSet(
+      null
+    );
+
+    setSelectedSection(
+      null
+    );
+
+    setActionError("");
+    setActionSuccess("");
+
+    setStage("sets");
+  };
+
+  const openSet = async (
+    setItem
+  ) => {
+    const availability =
+      getSetState(
+        setItem
+      );
+
+    if (
+      !availability.openable
+    ) {
       setActionSuccess(
-        "Question rejected successfully. The rejection reason has been recorded."
+        ""
       );
 
-      setIsRejectModalOpen(false);
-      setSelectedQuestion(null);
-      setRejectionReason("");
-
-      await loadQuestions(true);
-    } catch (err) {
-      console.error(
-        "Failed to reject question:",
-        err
+      setActionError(
+        `${availability.title}: ${availability.reason}`
       );
 
-      if (handleUnauthorized(err)) {
+      return;
+    }
+
+    setActionError("");
+    setActionSuccess("");
+
+    setSelectedSection(
+      null
+    );
+
+    const data =
+      await loadSet(
+        setItem.id
+      );
+
+    if (data) {
+      setStage(
+        "set-detail"
+      );
+    }
+  };
+
+  const openCompletedSet =
+    async (setItem) => {
+      const status =
+        String(
+          setItem?.status ||
+            ""
+        ).toLowerCase();
+
+      if (
+        ![
+          "approved",
+          "rejected",
+        ].includes(status)
+      ) {
+        setActionSuccess("");
+
+        setActionError(
+          "Only completed assessment-set reviews can be opened from review history."
+        );
+
         return;
       }
 
-      setActionError(
-        getErrorMessage(
-          err,
-          "Unable to reject the question."
-        )
+      setActionError("");
+
+      setActionSuccess("");
+
+      setSelectedSection(
+        null
       );
-    } finally {
-      setRejectingId(null);
-    }
+
+      const data =
+        await loadCompletedSet(
+          setItem.id
+        );
+
+      if (data) {
+        setStage(
+          "set-detail"
+        );
+      }
+    };
+
+  const openSection = (
+    section
+  ) => {
+    setSelectedSection(
+      section
+    );
+
+    setQuestionSearch("");
+
+    setStatusFilter(
+      "all"
+    );
+
+    setSourceFilter(
+      "all"
+    );
+
+    setActionError("");
+    setActionSuccess("");
+
+    setStage(
+      "questions"
+    );
   };
+
+  const backToJobs =
+    () => {
+      setSelectedJob(
+        null
+      );
+
+      setSelectedSet(
+        null
+      );
+
+      setSelectedSection(
+        null
+      );
+
+      setActionError("");
+      setActionSuccess("");
+
+      setStage(
+        "jobs"
+      );
+    };
+
+  const backToSets =
+    () => {
+      setSelectedSet(
+        null
+      );
+
+      setSelectedSection(
+        null
+      );
+
+      setActionError("");
+      setActionSuccess("");
+
+      setStage(
+        "sets"
+      );
+    };
+
+  const backToSetDetail =
+    () => {
+      setSelectedSection(
+        null
+      );
+
+      setActionError("");
+      setActionSuccess("");
+
+      setStage(
+        "set-detail"
+      );
+    };
+
+  const refreshWorkspace =
+    async () => {
+      try {
+        setRefreshing(
+          true
+        );
+
+        setActionError("");
+        setActionSuccess("");
+
+        if (reviewMode === "completed") {
+          await loadCompletedQueue();
+        } else {
+          await loadQueue();
+        }
+
+        if (
+          selectedSet?.assessment_set_id
+        ) {
+          const selectedSetStatus = String(
+            selectedSet?.status || ""
+          ).toLowerCase();
+
+          if (
+            reviewMode === "completed" ||
+            selectedSetStatus === "approved" ||
+            selectedSetStatus === "rejected"
+          ) {
+            await loadCompletedSet(
+              selectedSet.assessment_set_id,
+              true
+            );
+          } else {
+            await loadSet(
+              selectedSet.assessment_set_id,
+              true
+            );
+          }
+        }
+      } catch (err) {
+        console.error(
+          "Failed to refresh reviewer workspace:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to refresh the reviewer workspace."
+            )
+          );
+        }
+      } finally {
+        setRefreshing(
+          false
+        );
+      }
+    };
+
+  const approveQuestion =
+    async (question) => {
+      const id =
+        getQuestionId(
+          question
+        );
+
+      if (!id) {
+        setActionError(
+          "This question does not have a valid ID."
+        );
+
+        return;
+      }
+
+      if (
+        question?.status !==
+        "pending_review"
+      ) {
+        setActionError(
+          "Only questions currently pending review can be approved."
+        );
+
+        return;
+      }
+
+      setApprovingId(id);
+
+      setActionError("");
+      setActionSuccess("");
+
+      try {
+        await api.post(
+          `/questions/${id}/approve`
+        );
+
+        setActionSuccess(
+          `Question #${id} approved successfully.`
+        );
+
+        await Promise.all([
+          loadQueue(),
+
+          loadSet(
+            selectedSet.assessment_set_id,
+            true
+          ),
+        ]);
+      } catch (err) {
+        console.error(
+          "Failed to approve question:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to approve the question."
+            )
+          );
+        }
+      } finally {
+        setApprovingId(
+          null
+        );
+      }
+    };
+
+  const rejectQuestion =
+    async (event) => {
+      event.preventDefault();
+
+      const id =
+        getQuestionId(
+          rejectingQuestion
+        );
+
+      const reason =
+        rejectionReason.trim();
+
+      if (!id) {
+        setActionError(
+          "This question does not have a valid ID."
+        );
+
+        return;
+      }
+
+      if (!reason) {
+        setActionError(
+          "Rejection reason is required."
+        );
+
+        return;
+      }
+
+      setRejectingId(id);
+
+      setActionError("");
+      setActionSuccess("");
+
+      try {
+        await api.post(
+          `/questions/${id}/reject`,
+          {
+            rejection_reason:
+              reason,
+          }
+        );
+
+        setActionSuccess(
+          `Question #${id} rejected successfully.`
+        );
+
+        setRejectingQuestion(
+          null
+        );
+
+        setRejectionReason(
+          ""
+        );
+
+        await Promise.all([
+          loadQueue(),
+
+          loadSet(
+            selectedSet.assessment_set_id,
+            true
+          ),
+        ]);
+      } catch (err) {
+        console.error(
+          "Failed to reject question:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to reject the question."
+            )
+          );
+        }
+      } finally {
+        setRejectingId(
+          null
+        );
+      }
+    };
+
+  const approveSet =
+    async () => {
+      const assessmentSetId =
+        selectedSet?.assessment_set_id ??
+        selectedSet?.id ??
+        null;
+
+      if (!assessmentSetId) {
+        setActionError(
+          "This assessment set does not have a valid ID."
+        );
+
+        return;
+      }
+
+      if (!setIsSubmitted) {
+        setActionError(
+          "Only assessment sets submitted for review can be approved."
+        );
+
+        return;
+      }
+
+      if (!setApprovalReady) {
+        setActionError(
+          "The assessment set cannot be approved until every slot is filled and every question is approved."
+        );
+
+        return;
+      }
+
+      setApprovingSetId(
+        assessmentSetId
+      );
+
+      setActionError("");
+      setActionSuccess("");
+
+      try {
+        const response = await api.post(
+          `/assessment-reviews/sets/${assessmentSetId}/approve`,
+          {}
+        );
+
+        const approvedSetLabel = getSetLabel(
+          selectedSet
+        );
+
+        setSelectedSet((current) =>
+          current
+            ? {
+                ...current,
+                ...(response.data || {}),
+                status: "approved",
+                review_status: "approved",
+              }
+            : current
+        );
+
+        setSelectedJob((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            sets: (current.sets || []).map((setItem) =>
+              Number(setItem?.id) === Number(assessmentSetId)
+                ? {
+                    ...setItem,
+                    ...(response.data || {}),
+                    status: "approved",
+                    review_status: "approved",
+                  }
+                : setItem
+            ),
+          };
+        });
+
+        setSelectedSection(null);
+        setActionSuccess(
+          `${approvedSetLabel} approved successfully. The reviewer decision is complete; the set is now ready to be handed off to HR.`
+        );
+        setActionError("");
+
+        await loadQueue();
+      } catch (err) {
+        console.error(
+          "Failed to approve assessment set:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to approve the assessment set."
+            )
+          );
+        }
+      } finally {
+        setApprovingSetId(
+          null
+        );
+      }
+    };
+
+  const sendSetToHr =
+    async () => {
+      const assessmentSetId =
+        selectedSet?.assessment_set_id ??
+        selectedSet?.id ??
+        null;
+
+      if (!assessmentSetId) {
+        setActionError(
+          "This assessment set does not have a valid ID."
+        );
+        return;
+      }
+
+      const status = String(
+        selectedSet?.status || ""
+      ).toLowerCase();
+
+      if (status !== "approved") {
+        setActionError(
+          "Only approved assessment sets can be sent to HR."
+        );
+        return;
+      }
+
+      const alreadySent = Boolean(
+        selectedSet?.sent_to_hr ||
+        selectedSet?.sent_to_hr_at
+      );
+
+      if (alreadySent) {
+        setActionSuccess(
+          `${getSetLabel(selectedSet)} has already been handed off to HR.`
+        );
+        setActionError("");
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Send ${getSetLabel(
+          selectedSet
+        )} to HR? The approved assessment will become available in the HR workspace for delivery configuration.`
+      );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setSendingToHrSetId(assessmentSetId);
+      setActionError("");
+      setActionSuccess("");
+
+      try {
+        const response = await api.post(
+          `/assessment-reviews/sets/${assessmentSetId}/send-to-hr`
+        );
+
+        const handoff = response?.data || {};
+
+        setSelectedSet((current) =>
+          current
+            ? {
+                ...current,
+                ...handoff,
+                status: "approved",
+                review_status: "approved",
+                sent_to_hr: true,
+              }
+            : current
+        );
+
+        setSelectedJob((current) => {
+          if (!current) {
+            return current;
+          }
+
+          return {
+            ...current,
+            sets: (current.sets || []).map((setItem) =>
+              Number(setItem?.id) === Number(assessmentSetId)
+                ? {
+                    ...setItem,
+                    ...handoff,
+                    status: "approved",
+                    review_status: "approved",
+                    sent_to_hr: true,
+                  }
+                : setItem
+            ),
+          };
+        });
+
+        setActionSuccess(
+          `${getSetLabel(
+            selectedSet
+          )} was sent to HR successfully. HR can now configure availability and candidate delivery.`
+        );
+        setActionError("");
+      } catch (err) {
+        console.error(
+          "Failed to send assessment set to HR:",
+          err
+        );
+
+        if (!handleUnauthorized(err)) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to send the assessment set to HR."
+            )
+          );
+        }
+      } finally {
+        setSendingToHrSetId(null);
+      }
+    };
+
+  const rejectSet =
+    async () => {
+      const assessmentSetId =
+        selectedSet?.assessment_set_id ??
+        selectedSet?.id ??
+        null;
+
+      const reason =
+        rejectionReason.trim();
+
+      if (!assessmentSetId) {
+        setActionError(
+          "This assessment set does not have a valid ID."
+        );
+
+        return;
+      }
+
+      if (!setIsSubmitted) {
+        setActionError(
+          "Only assessment sets submitted for review can be rejected."
+        );
+
+        return;
+      }
+
+      if (!reason) {
+        setActionError(
+          "Rejection reason is required."
+        );
+
+        return;
+      }
+
+      setRejectingSetId(
+        assessmentSetId
+      );
+
+      setActionError("");
+      setActionSuccess("");
+
+      try {
+        await api.post(
+          `/assessment-reviews/sets/${assessmentSetId}/reject`,
+          {
+            comment: reason,
+          }
+        );
+
+        setActionSuccess(
+          `${getSetLabel(
+            selectedSet
+          )} rejected successfully.`
+        );
+
+        setRejectingSet(
+          false
+        );
+
+        setRejectionReason(
+          ""
+        );
+
+        setSelectedSection(
+          null
+        );
+
+        setSelectedSet(
+          null
+        );
+
+        setSelectedJob(
+          null
+        );
+
+        setReviewMode(
+          "active"
+        );
+
+        setStage(
+          "jobs"
+        );
+
+        await loadQueue();
+      } catch (err) {
+        console.error(
+          "Failed to reject assessment set:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setActionError(
+            getErrorMessage(
+              err,
+              "Unable to reject the assessment set."
+            )
+          );
+        }
+      } finally {
+        setRejectingSetId(
+          null
+        );
+      }
+    };
+
+  const openVersionHistory =
+    async (question) => {
+      const id =
+        getQuestionId(
+          question
+        );
+
+      if (!id) {
+        return;
+      }
+
+      setVersionQuestion(
+        question
+      );
+
+      setVersions([]);
+
+      setVersionsError("");
+
+      setVersionsLoading(
+        true
+      );
+
+      try {
+        const response =
+          await api.get(
+            `/questions/${id}/versions`
+          );
+
+        setVersions(
+          Array.isArray(
+            response.data
+          )
+            ? response.data
+            : []
+        );
+      } catch (err) {
+        console.error(
+          "Failed to load version history:",
+          err
+        );
+
+        if (
+          !handleUnauthorized(
+            err
+          )
+        ) {
+          setVersionsError(
+            getErrorMessage(
+              err,
+              "Unable to load version history."
+            )
+          );
+        }
+      } finally {
+        setVersionsLoading(
+          false
+        );
+      }
+    };
+
+  if (loading) {
+    return (
+      <RecruiterLayout
+        title="Assessment Review"
+        breadcrumb="Workspace / Assessment Review"
+      >
+        <main className="mx-auto flex min-h-[65vh] max-w-[1500px] items-center justify-center px-5 sm:px-8">
+          <LoadingPanel
+            text="Loading reviewer workspace..."
+          />
+        </main>
+      </RecruiterLayout>
+    );
+  }
 
   return (
     <RecruiterLayout
       title="Assessment Review"
-      breadcrumb="Workspace / Assessment Review"
+      breadcrumb={`Workspace / Assessment Review${
+        selectedJob
+          ? ` / ${selectedJob.job_title}`
+          : ""
+      }`}
     >
       <div className="mx-auto max-w-[1500px] space-y-6 pb-12 text-[#202938]">
-
-        {/* =====================================================
-            PAGE HEADER
-        ===================================================== */}
-
-        <section className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white px-5 py-6 shadow-[0_8px_24px_rgba(27,37,58,0.035)] sm:px-7 sm:py-7 lg:px-9 lg:py-9">
-          <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-[#CFDEFC]/45 blur-[70px]" />
-          <div className="pointer-events-none absolute right-20 top-10 h-28 w-28 rounded-full bg-[#F3E3F2]/55 blur-[35px]" />
+        <section className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white px-5 py-6 shadow-[0_8px_24px_rgba(27,37,58,0.035)] sm:px-7 sm:py-7 lg:px-9">
+          <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-[#CFDEFC]/35 blur-[70px]" />
 
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-4xl">
+            <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#D9DEE7] bg-[#FAFBFC] px-3 py-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#5658E8]" />
 
                 <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#667085]">
-                  Human review + system validation
+                  Independent reviewer gate
                 </span>
               </div>
 
-              <h1 className="text-[29px] font-semibold leading-[1.08] tracking-[-0.035em] text-[#182033] sm:text-[34px] lg:text-[40px]">
-                Assessment Review
+              <h1 className="text-[30px] font-semibold leading-[1.08] tracking-[-0.035em] text-[#182033] sm:text-[38px]">
+                {stage ===
+                "jobs"
+                  ? reviewMode === "completed"
+                    ? "Completed Review History"
+                    : "Assessment Review"
+                  : stage === "sets"
+                    ? `${currentJobTitle} — ${
+                        reviewMode === "completed"
+                          ? "Completed Reviews"
+                          : "Assessment Sets"
+                      }`
+                    : stage ===
+                        "set-detail"
+                      ? `${getSetLabel(
+                          selectedSet
+                        )} — ${
+                          reviewMode === "completed"
+                            ? "Completed Review"
+                            : "Review Package"
+                        }`
+                      : selectedSection?.name ||
+                        "Question Review"}
               </h1>
 
-              <p className="mt-2.5 max-w-3xl text-[12.5px] leading-6 text-[#667085]">
-                Evalyn performs the machine-checkable validation first,
-                then presents the reviewer with the context needed to
-                make the final content-quality decision.
+              <p className="mt-2.5 max-w-3xl text-sm leading-6 text-[#667085]">
+                {stage ===
+                "jobs"
+                  ? reviewMode === "completed"
+                    ? "Browse completed reviewer decisions and reopen any approved or rejected assessment set in read-only mode."
+                    : "Review HR-published jobs and choose an assessment set."
+                  : stage === "sets"
+                    ? reviewMode === "completed"
+                      ? "Set A and Set B are shown with their completed reviewer decisions. Completed reviews are read-only."
+                      : "Set A and Set B are shown with their current status. Only sets submitted by the Assessment Manager can be opened."
+                    : stage ===
+                        "set-detail"
+                      ? reviewMode === "completed"
+                        ? `Inspect ${getSetLabel(
+                            selectedSet
+                          )} and its persisted reviewer decision.`
+                        : `Review ${
+                            getSetLabel(
+                              selectedSet
+                            )
+                          } against the job requirements.`
+                      : `Review questions in ${
+                          selectedSection?.name ||
+                          "this section"
+                        } individually.`}
               </p>
-
-              <div className="mt-5 flex flex-wrap items-center gap-2.5 text-[10px] font-semibold text-[#667085]">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D9DEE7] bg-white px-3 py-1.5">
-                  <ShieldCheck
-                    size={13}
-                    className="text-[#5658E8]"
-                  />
-                  Automated checks
-                </span>
-
-                <span className="text-[#A3A9B5]">
-                  →
-                </span>
-
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D9DEE7] bg-white px-3 py-1.5">
-                  <UserRound
-                    size={13}
-                    className="text-[#AA5E9C]"
-                  />
-                  Reviewer decision
-                </span>
-
-                <span className="text-[#A3A9B5]">
-                  →
-                </span>
-
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D9DEE7] bg-white px-3 py-1.5">
-                  <History
-                    size={13}
-                    className="text-[#7862C8]"
-                  />
-                  Version history
-                </span>
-              </div>
             </div>
 
             <button
               type="button"
-              onClick={() => loadQuestions(true)}
-              disabled={refreshing}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#C9D0DC] bg-white px-4 text-sm font-semibold text-[#475467] transition duration-200 hover:-translate-y-0.5 hover:border-[#5658E8] hover:text-[#5658E8] disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={
+                refreshWorkspace
+              }
+              disabled={
+                refreshing
+              }
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-[#C9D0DC] bg-white px-4 text-sm font-semibold text-[#475467] transition hover:border-[#5658E8] hover:text-[#5658E8] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw
                 size={15}
@@ -564,1335 +2115,2099 @@ function ReviewerWorkspace() {
                     : ""
                 }
               />
+
               Refresh
             </button>
           </div>
         </section>
 
-        {/* =====================================================
-            ACTION MESSAGES
-        ===================================================== */}
-
-        {actionSuccess && (
-          <div className="flex items-start gap-3 rounded-[18px] border border-[#CFE4D9] bg-[#F5FAF7] px-4 py-3.5">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#E2F3EA] text-[#28734E]">
-              <CheckCircle2 size={16} />
-            </span>
-
-            <div>
-              <p className="text-xs font-semibold text-[#28734E]">
-                Review completed
-              </p>
-
-              <p className="mt-0.5 text-xs leading-5 text-[#4B7D63]">
-                {actionSuccess}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {actionError && (
-          <div className="flex items-start gap-3 rounded-[18px] border border-[#E9C8C8] bg-[#FFF8F8] px-4 py-3.5">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#FBE9E9] text-[#A83E3E]">
-              <AlertCircle size={16} />
-            </span>
-
-            <div>
-              <p className="text-xs font-semibold text-[#8F3636]">
-                Review action failed
-              </p>
-
-              <p className="mt-0.5 text-xs leading-5 text-[#A83E3E]">
-                {actionError}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* =====================================================
-            SUMMARY
-        ===================================================== */}
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-
-          <div className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)]">
-            <div className="absolute inset-x-0 top-0 h-0.5 bg-[#FFD8C7]" />
-
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8A94A8]">
-                  Review queue
-                </p>
-
-                <p className="mt-3 text-sm font-medium text-[#667085]">
-                  Pending review
-                </p>
-
-                <p className="mt-1 text-[34px] font-semibold tracking-[-0.03em] text-[#182033]">
-                  {pendingQuestions.length}
-                </p>
-              </div>
-
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#FFF1EC] text-[#A76D5B]">
-                <ClipboardCheck size={17} />
-              </span>
-            </div>
-
-            <p className="mt-4 text-xs leading-5 text-[#98A2B3]">
-              Questions awaiting an independent reviewer decision.
-            </p>
-          </div>
-
-          <div className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)]">
-            <div className="absolute inset-x-0 top-0 h-0.5 bg-[#D4C6F8]" />
-
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8A94A8]">
-                  AI queue
-                </p>
-
-                <p className="mt-3 text-sm font-medium text-[#667085]">
-                  AI-generated
-                </p>
-
-                <p className="mt-1 text-[34px] font-semibold tracking-[-0.03em] text-[#5658E8]">
-                  {aiPendingQuestions.length}
-                </p>
-              </div>
-
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F0EEFF] text-[#5658E8]">
-                <Bot size={17} />
-              </span>
-            </div>
-
-            <p className="mt-4 text-xs leading-5 text-[#98A2B3]">
-              AI-generated questions waiting for independent review.
-            </p>
-          </div>
-
-          <div className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)]">
-            <div className="absolute inset-x-0 top-0 h-0.5 bg-[#CFE4D9]" />
-
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8A94A8]">
-                  Approved
-                </p>
-
-                <p className="mt-3 text-sm font-medium text-[#667085]">
-                  Ready content
-                </p>
-
-                <p className="mt-1 text-[34px] font-semibold tracking-[-0.03em] text-[#28734E]">
-                  {approvedQuestions.length}
-                </p>
-              </div>
-
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#E2F3EA] text-[#28734E]">
-                <CheckCircle2 size={17} />
-              </span>
-            </div>
-
-            <p className="mt-4 text-xs leading-5 text-[#98A2B3]">
-              Questions already approved for downstream assessment use.
-            </p>
-          </div>
-
-          <div className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)]">
-            <div className="absolute inset-x-0 top-0 h-0.5 bg-[#EDBFE5]" />
-
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8A94A8]">
-                  Rejected
-                </p>
-
-                <p className="mt-3 text-sm font-medium text-[#667085]">
-                  Needs revision
-                </p>
-
-                <p className="mt-1 text-[34px] font-semibold tracking-[-0.03em] text-[#AA5E9C]">
-                  {rejectedQuestions.length}
-                </p>
-              </div>
-
-              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[#F3E3F2] text-[#AA5E9C]">
-                <XCircle size={17} />
-              </span>
-            </div>
-
-            <p className="mt-4 text-xs leading-5 text-[#98A2B3]">
-              Questions that were rejected and require correction.
-            </p>
-          </div>
-        </section>
-
-        {/* =====================================================
-            REVIEW PRINCIPLE
-        ===================================================== */}
-
-        <section className="rounded-[18px] border border-[#DDDFF7] bg-[#F9F9FF] px-5 py-4 sm:px-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#E9E8FF] text-[#5658E8]">
-              <ShieldCheck size={16} />
-            </span>
-
-            <div>
-              <p className="text-xs font-semibold text-[#36386E]">
-                Review model
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-[#667085]">
-                Evalyn checks the data it can validate automatically.
-                The reviewer remains responsible for the final content-quality
-                decision, with historical versions available for context.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================
-            SEARCH + FILTERS
-        ===================================================== */}
-
-        <section className="rounded-[18px] border border-[#E3E6EB] bg-white p-4 shadow-[0_8px_26px_rgba(27,37,58,0.035)] sm:p-6">
-          <div className="flex flex-col gap-4">
-
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
-                  Review queue
-                </p>
-
-                <h2 className="mt-1 text-[17px] font-semibold text-[#182033]">
-                  Find and triage a question
-                </h2>
-              </div>
-
-              <div className="relative w-full lg:max-w-md">
-                <Search
-                  size={16}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+        {(error ||
+          actionError ||
+          actionSuccess) && (
+          <div className="space-y-3">
+            {error && (
+              <div className="flex gap-3 rounded-[18px] border border-[#E9C8C8] bg-[#FFF8F8] px-4 py-3.5 text-sm text-[#A83E3E]">
+                <AlertCircle
+                  size={17}
+                  className="mt-0.5 shrink-0"
                 />
 
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
-                  placeholder="Search question text or skill ID..."
-                  className="h-11 w-full rounded-md border border-[#D4DAE4] bg-[#F8F9FC] pl-10 pr-4 text-sm text-[#202938] outline-none transition placeholder:text-[#98A2B3] hover:border-[#C4CAD6] focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
+                <p>
+                  {error}
+                </p>
+              </div>
+            )}
+
+            {actionError && (
+              <div className="flex gap-3 rounded-[18px] border border-[#E9C8C8] bg-[#FFF8F8] px-4 py-3.5 text-sm text-[#A83E3E]">
+                <AlertCircle
+                  size={17}
+                  className="mt-0.5 shrink-0"
                 />
-              </div>
-            </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="source-filter"
-                  className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.15em] text-[#8A94A8]"
-                >
-                  Source
-                </label>
-
-                <select
-                  id="source-filter"
-                  value={sourceFilter}
-                  onChange={(event) =>
-                    setSourceFilter(event.target.value)
+                <p>
+                  {
+                    actionError
                   }
-                  className="h-10 w-full rounded-md border border-[#D4DAE4] bg-white px-3 text-sm text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-                >
-                  <option value="all">
-                    All sources
-                  </option>
-
-                  <option value="ai_generated">
-                    AI generated
-                  </option>
-
-                  <option value="manual">
-                    Manual
-                  </option>
-                </select>
+                </p>
               </div>
+            )}
 
-              <div>
-                <label
-                  htmlFor="difficulty-filter"
-                  className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.15em] text-[#8A94A8]"
-                >
-                  Difficulty
-                </label>
+            {actionSuccess && (
+              <div className="flex gap-3 rounded-[18px] border border-[#CFE4D9] bg-[#F5FAF7] px-4 py-3.5 text-sm text-[#28734E]">
+                <CheckCircle2
+                  size={17}
+                  className="mt-0.5 shrink-0"
+                />
 
-                <select
-                  id="difficulty-filter"
-                  value={difficultyFilter}
-                  onChange={(event) =>
-                    setDifficultyFilter(event.target.value)
+                <p>
+                  {
+                    actionSuccess
                   }
-                  className="h-10 w-full rounded-md border border-[#D4DAE4] bg-white px-3 text-sm capitalize text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-                >
-                  <option value="all">
-                    All difficulties
-                  </option>
-
-                  <option value="easy">
-                    Easy
-                  </option>
-
-                  <option value="medium">
-                    Medium
-                  </option>
-
-                  <option value="hard">
-                    Hard
-                  </option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================
-            QUESTIONS
-        ===================================================== */}
-
-        <section>
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
-                Questions
-              </p>
-
-              <h2 className="mt-2 text-[25px] font-semibold tracking-[-0.025em] text-[#182033]">
-                Pending review
-              </h2>
-
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#667085]">
-                Review the system checks, inspect the content, then make
-                the independent approval decision. Historical versions remain
-                available for context.
-              </p>
-            </div>
-
-            {!loading && !error && (
-              <div className="rounded-full bg-[#F4F5F8] px-3 py-1.5 text-[10px] font-semibold text-[#667085]">
-                {filteredQuestions.length}{" "}
-                {filteredQuestions.length === 1
-                  ? "question"
-                  : "questions"}{" "}
-                shown
+                </p>
               </div>
             )}
           </div>
+        )}
 
-          {loading ? (
-            <div className="rounded-[18px] border border-[#E3E6EB] bg-white p-8 text-sm text-[#98A2B3]">
-              Loading review queue...
-            </div>
-          ) : error ? (
-            <div className="rounded-[18px] border border-[#E9C8C8] bg-[#FFF8F8] p-6">
-              <div className="flex items-start gap-3">
-                <AlertCircle
-                  size={19}
-                  className="mt-0.5 text-[#A83E3E]"
-                />
+        {stage ===
+          "jobs" && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
+                  {reviewMode === "completed"
+                    ? "Review history"
+                    : "Review queue"}
+                </p>
 
-                <div>
-                  <p className="text-sm font-semibold text-[#8F3636]">
-                    Review queue unavailable
-                  </p>
+                <h2 className="mt-1.5 text-[23px] font-semibold tracking-[-0.02em] text-[#182033]">
+                  {reviewMode === "completed"
+                    ? "Completed reviews"
+                    : "HR-published jobs"}
+                </h2>
 
-                  <p className="mt-1.5 text-sm leading-6 text-[#A83E3E]">
-                    {error}
-                  </p>
+                <p className="mt-1 text-sm leading-6 text-[#667085]">
+                  {reviewMode === "completed"
+                    ? "Open an approved or rejected review without changing it."
+                    : "Select a job to see Set A and Set B."}
+                </p>
+              </div>
+
+              <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+                <div className="inline-flex rounded-md border border-[#D4DAE4] bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      switchReviewMode(
+                        "active"
+                      )
+                    }
+                    disabled={
+                      historyLoading
+                    }
+                    className={`inline-flex h-9 items-center justify-center gap-2 rounded px-3 text-xs font-semibold transition ${
+                      reviewMode ===
+                      "active"
+                        ? "bg-[#5658E8] text-white"
+                        : "text-[#475467] hover:bg-[#F4F5F8]"
+                    }`}
+                  >
+                    <ClipboardCheck
+                      size={
+                        14
+                      }
+                    />
+                    Pending reviews
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      switchReviewMode(
+                        "completed"
+                      )
+                    }
+                    disabled={
+                      historyLoading
+                    }
+                    className={`inline-flex h-9 items-center justify-center gap-2 rounded px-3 text-xs font-semibold transition ${
+                      reviewMode ===
+                      "completed"
+                        ? "bg-[#5658E8] text-white"
+                        : "text-[#475467] hover:bg-[#F4F5F8]"
+                    }`}
+                  >
+                    {historyLoading ? (
+                      <RefreshCw
+                        size={
+                          14
+                        }
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <History
+                        size={
+                          14
+                        }
+                      />
+                    )}
+                    Completed history
+                  </button>
+                </div>
+
+                <div className="relative w-full md:max-w-sm">
+                  <Search
+                    size={15}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+                  />
+
+                  <input
+                    value={
+                      jobSearch
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setJobSearch(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder={
+                      reviewMode ===
+                      "completed"
+                        ? "Search completed reviews..."
+                        : "Search published jobs..."
+                    }
+                    className="h-10 w-full rounded-md border border-[#D4DAE4] bg-white pl-10 pr-3 text-sm outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                  />
                 </div>
               </div>
             </div>
-          ) : filteredQuestions.length === 0 ? (
-            <div className="rounded-[18px] border border-dashed border-[#C9CEDB] bg-white p-10 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-md bg-[#F8F1EF] text-[#A76D5B]">
-                <ClipboardCheck size={23} />
-              </div>
 
-              <h3 className="mt-4 text-lg font-semibold text-[#202938]">
-                {search ||
-                sourceFilter !== "all" ||
-                difficultyFilter !== "all"
-                  ? "No pending questions match these filters"
-                  : "No questions are waiting for review"}
-              </h3>
+            {filteredJobs.length ===
+            0 ? (
+              <EmptyPanel
+                title={
+                  reviewMode ===
+                  "completed"
+                    ? "No completed reviews"
+                    : "No reviewable jobs"
+                }
+                description={
+                  reviewMode ===
+                  "completed"
+                    ? "There are currently no approved or rejected Assessment Sets in your completed reviewer history."
+                    : "There are currently no Assessment Sets submitted for review within your assigned reviewer scope."
+                }
+              />
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {filteredJobs.map(
+                  (job) => (
+                    <button
+                      key={
+                        job.job_id
+                      }
+                      type="button"
+                      onClick={() =>
+                        openJob(
+                          job
+                        )
+                      }
+                      className="group rounded-[20px] border border-[#E3E6EB] bg-white p-5 text-left shadow-[0_8px_26px_rgba(27,37,58,0.035)] transition hover:-translate-y-0.5 hover:border-[#C9CDF3] sm:p-6"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAE5F9] text-[#7862C8]">
+                            <FileText
+                              size={
+                                19
+                              }
+                            />
+                          </div>
 
-              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#98A2B3]">
-                {search ||
-                sourceFilter !== "all" ||
-                difficultyFilter !== "all"
-                  ? "Adjust the search or filter values to view other pending questions."
-                  : "New questions submitted by Assessment Managers will appear here."}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredQuestions.map((question) => {
-                const isApproving =
-                  approvingId === question.id;
+                          <div className="min-w-0">
+                            <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#8A94A8]">
+                              Published job
+                            </p>
 
-                const isRejecting =
-                  rejectingId === question.id;
+                            <h3 className="mt-1 truncate text-[21px] font-semibold text-[#202938]">
+                              {
+                                job.job_title
+                              }
+                            </h3>
 
-                const busy =
-                  isApproving || isRejecting;
-
-                const {
-                  checks,
-                  passedCount,
-                  totalCount,
-                  allPassed,
-                } = getCheckSummary(question);
-
-                const isAiGenerated =
-                  question.source === "ai_generated";
-
-                return (
-                  <article
-                    key={question.id}
-                    className="overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white shadow-[0_6px_20px_rgba(27,37,58,0.028)]"
-                  >
-                    <div className="grid lg:grid-cols-[minmax(0,1fr)_330px]">
-
-                      {/* =================================================
-                          QUESTION CONTENT
-                      ================================================= */}
-
-                      <div className="min-w-0 p-5 sm:p-6">
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-[#F4F5F8] px-2.5 py-1 text-[10px] font-semibold text-[#667085]">
-                            {question.question_type
-                              ?.replace("_", " ")
-                              .toUpperCase() ||
-                              "QUESTION"}
-                          </span>
-
-                          <span className="rounded-full bg-[#EAE5F9] px-2.5 py-1 text-[10px] font-semibold capitalize text-[#7862C8]">
-                            {question.difficulty ||
-                              "medium"}
-                          </span>
-
-                          <span className="rounded-full bg-[#FFF1EC] px-2.5 py-1 text-[10px] font-semibold text-[#A76D5B]">
-                            Pending Review
-                          </span>
-
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F3E3F2] px-2.5 py-1 text-[10px] font-semibold text-[#AA5E9C]">
-                            {isAiGenerated ? (
-                              <Bot size={11} />
-                            ) : (
-                              <FileText size={11} />
-                            )}
-
-                            {isAiGenerated
-                              ? "AI Generated"
-                              : "Manual"}
-                          </span>
-
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D9DEE7] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#667085]">
-                            <History size={11} />
-
-                            v{question.version || 1}
-                          </span>
+                            <p className="mt-1 truncate text-[11px] text-[#98A2B3]">
+                              {
+                                job.question_set_name
+                              }
+                            </p>
+                          </div>
                         </div>
 
-                        <h3 className="mt-4 text-[17px] font-semibold leading-7 text-[#202938]">
-                          {question.question_text}
-                        </h3>
+                        <ChevronRight
+                          size={
+                            18
+                          }
+                          className="mt-1 shrink-0 text-[#98A2B3] group-hover:text-[#5658E8]"
+                        />
+                      </div>
 
-                        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] text-[#98A2B3]">
-                          <span>
-                            Question ID: {question.id}
-                          </span>
+                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        <MetaCard
+                          label="Assessment sets"
+                          value={
+                            job.sets
+                              .length
+                          }
+                        />
 
-                          <span>
-                            Skill ID: {question.skill_id}
-                          </span>
+                        <MetaCard
+                          label={
+                            reviewMode ===
+                            "completed"
+                              ? "Completed"
+                              : "Submitted"
+                          }
+                          value={
+                            job.sets.filter(
+                              (
+                                item
+                              ) =>
+                                item.is_openable
+                            ).length
+                          }
+                        />
 
-                          <span>
-                            Type: {question.question_type}
-                          </span>
+                        <MetaCard
+                          label={
+                            reviewMode ===
+                            "completed"
+                              ? "History"
+                              : "Review"
+                          }
+                          value={
+                            reviewMode ===
+                            "completed"
+                              ? job.sets.some(
+                                  (
+                                    item
+                                  ) =>
+                                    item.status ===
+                                    "rejected"
+                                )
+                                ? "Includes rejection"
+                                : "Completed"
+                              : job.sets.some(
+                                  (
+                                    item
+                                  ) =>
+                                    item.is_openable
+                                )
+                                ? "Available"
+                                : "Waiting"
+                          }
+                        />
+                      </div>
+                    </button>
+                  )
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
-                          <span>
-                            Version: {question.version || 1}
-                          </span>
+        {stage ===
+          "sets" &&
+          selectedJob && (
+            <section className="space-y-5">
+              <div className="rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)] sm:p-6">
+                <button
+                  type="button"
+                  onClick={
+                    backToJobs
+                  }
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-[#5658E8] hover:underline"
+                >
+                  <ArrowLeft
+                    size={
+                      14
+                    }
+                  />
+
+                  Back to jobs
+                </button>
+
+                <div className="mt-5">
+                  <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#5658E8]">
+                    {reviewMode ===
+                    "completed"
+                      ? "Completed review history"
+                      : "Published job"}
+                  </p>
+
+                  <h2 className="mt-1.5 text-[30px] font-semibold tracking-[-0.025em] text-[#182033]">
+                    {
+                      selectedJob.job_title
+                    }
+                  </h2>
+
+                  <p className="mt-2 text-sm leading-6 text-[#667085]">
+                    {reviewMode ===
+                    "completed"
+                      ? "Choose the completed assessment variant you want to inspect."
+                      : "Choose the assessment variant you want to review."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-2">
+                {selectedJob.sets.map(
+                  (setItem) => {
+                    const state =
+                      reviewMode ===
+                      "completed"
+                        ? getCompletedSetState(
+                            setItem
+                          )
+                        : getSetState(
+                            setItem
+                          );
+
+                    return (
+                      <article
+                        key={
+                          setItem.id
+                        }
+                        className={`rounded-[20px] border bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)] sm:p-6 ${
+                          state.openable
+                            ? "border-[#DDDFF7]"
+                            : "border-[#E3E6EB]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                                state.openable
+                                  ? "bg-[#EAE5F9] text-[#5658E8]"
+                                  : "bg-[#F4F5F8] text-[#98A2B3]"
+                              }`}
+                            >
+                              {state.openable ? (
+                                reviewMode ===
+                                "completed" ? (
+                                  <History
+                                    size={
+                                      20
+                                    }
+                                  />
+                                ) : (
+                                  <FileText
+                                    size={
+                                      20
+                                    }
+                                  />
+                                )
+                              ) : (
+                                <Lock
+                                  size={
+                                    19
+                                  }
+                                />
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8A94A8]">
+                                Assessment
+                                set
+                              </p>
+
+                              <h3 className="mt-1 text-[27px] font-semibold text-[#202938]">
+                                {
+                                  getSetLabel(
+                                    setItem
+                                  )
+                                }
+                              </h3>
+
+                              <p className="mt-1 text-xs text-[#98A2B3]">
+                                Variant{" "}
+                                {
+                                  setItem.variant_number ??
+                                  "—"
+                                }
+                              </p>
+                            </div>
+                          </div>
+
+                          <StatusBadge
+                            status={
+                              setItem.status
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                          <MetaCard
+                            label="Questions"
+                            value={
+                              setItem.question_count ??
+                              0
+                            }
+                          />
+
+                          <MetaCard
+                            label="Pending"
+                            value={
+                              setItem.pending_review_count ??
+                              0
+                            }
+                          />
+
+                          <MetaCard
+                            label="Approved"
+                            value={
+                              setItem.approved_count ??
+                              0
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-5 rounded-[16px] border border-[#EEF0F3] bg-[#FCFCFD] p-4">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                            {
+                              state.title
+                            }
+                          </p>
+
+                          <p className="mt-1.5 text-sm leading-6 text-[#667085]">
+                            {
+                              state.reason
+                            }
+                          </p>
                         </div>
 
                         <button
                           type="button"
-                          onClick={() =>
-                            loadVersionHistory(question)
+                          disabled={
+                            !state.openable
                           }
-                          className="mt-4 inline-flex items-center gap-2 rounded-md border border-[#D6D9E5] bg-white px-3.5 py-2 text-xs font-semibold text-[#5658E8] transition hover:border-[#5658E8] hover:bg-[#F8F8FF]"
+                          onClick={() =>
+                            reviewMode ===
+                            "completed"
+                              ? openCompletedSet(
+                                  setItem
+                                )
+                              : openSet(
+                                  setItem
+                                )
+                          }
+                          className={`mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold ${
+                            state.openable
+                              ? "bg-[#5658E8] text-white hover:bg-[#494BD8]"
+                              : "cursor-not-allowed border border-[#D4DAE4] bg-[#F8F9FB] text-[#98A2B3]"
+                          }`}
                         >
-                          <History size={14} />
-                          View version history
+                          {state.openable ? (
+                            <>
+                              {
+                                state.button
+                              }
+
+                              <ChevronRight
+                                size={
+                                  15
+                                }
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <Lock
+                                size={
+                                  14
+                                }
+                              />
+
+                              {
+                                state.button
+                              }
+                            </>
+                          )}
+                        </button>
+                      </article>
+                    );
+                  }
+                )}
+              </div>
+            </section>
+          )}
+
+        {stage ===
+          "set-detail" &&
+          selectedSet && (
+            <section className="space-y-5">
+              <div className="rounded-[18px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)] sm:p-6">
+                <button
+                  type="button"
+                  onClick={
+                    backToSets
+                  }
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-[#5658E8] hover:underline"
+                >
+                  <ArrowLeft
+                    size={
+                      14
+                    }
+                  />
+
+                  Back to assessment sets
+                </button>
+
+                <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-[#EAE5F9] px-3 py-1.5 text-[10px] font-bold text-[#5658E8]">
+                        {
+                          getSetLabel(
+                            selectedSet
+                          )
+                        }
+                      </span>
+
+                      <StatusBadge
+                        status={
+                          selectedSet.status
+                        }
+                      />
+                    </div>
+
+                    <h2 className="mt-3 text-[30px] font-semibold tracking-[-0.025em] text-[#182033]">
+                      {
+                        currentJobTitle
+                      }
+                    </h2>
+
+                    <p className="mt-1 text-sm text-[#667085]">
+                      {
+                        selectedSet.title ||
+                        "Submitted Assessment Set"
+                      }
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <MetaCard
+                      label="Total slots"
+                      value={
+                        selectedSummary.total_slots ??
+                        0
+                      }
+                    />
+
+                    <MetaCard
+                      label="Pending"
+                      value={
+                        selectedSummary.pending_review ??
+                        0
+                      }
+                    />
+
+                    <MetaCard
+                      label="Approved"
+                      value={
+                        selectedSummary.approved ??
+                        0
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {reviewMode ===
+                "completed" && (
+                <section className="rounded-[20px] border border-[#DDDFF7] bg-[#F9F9FF] p-5 sm:p-6">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#5658E8]">
+                        <History
+                          size={
+                            18
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#7862C8]">
+                          Persisted review decision
+                        </p>
+
+                        <h3 className="mt-1 text-lg font-semibold text-[#36386E]">
+                          {String(
+                            selectedSet?.review_status ||
+                              selectedSet?.status ||
+                              ""
+                          ).toLowerCase() ===
+                          "approved"
+                            ? "Assessment Set approved"
+                            : "Assessment Set rejected"}
+                        </h3>
+
+                        <p className="mt-1.5 max-w-3xl text-sm leading-6 text-[#667085]">
+                          This record is read-only. The displayed decision,
+                          reviewer metadata, checklist, and comment come from
+                          the completed review.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid w-full gap-3 sm:grid-cols-3 lg:w-auto">
+                      <MetaCard
+                        label="Decision"
+                        value={
+                          selectedSet?.review_status ||
+                          selectedSet?.status ||
+                          "—"
+                        }
+                      />
+
+                      <MetaCard
+                        label="Reviewer"
+                        value={
+                          selectedSet?.reviewer_id ??
+                          "—"
+                        }
+                      />
+
+                      <MetaCard
+                        label="Reviewed at"
+                        value={
+                          selectedSet?.reviewed_at
+                            ? new Date(
+                                selectedSet.reviewed_at
+                              ).toLocaleString()
+                            : "—"
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                    <div className="rounded-[16px] border border-[#E4E0F4] bg-white p-4">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                        Review comment
+                      </p>
+
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#475467]">
+                        {selectedSet?.review_comment ||
+                          "No review comment was recorded."}
+                      </p>
+                    </div>
+
+                    <div className="rounded-[16px] border border-[#E4E0F4] bg-white p-4">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                        Review checklist
+                      </p>
+
+                      {selectedSet?.review_checklist &&
+                      Object.keys(
+                        selectedSet.review_checklist
+                      ).length > 0 ? (
+                        <div className="mt-3 space-y-2">
+                          {Object.entries(
+                            selectedSet.review_checklist
+                          ).map(
+                            ([
+                              key,
+                              value,
+                            ]) => (
+                              <div
+                                key={
+                                  key
+                                }
+                                className="flex items-center justify-between gap-3 rounded-md border border-[#E7E9EE] bg-[#FCFCFD] px-3 py-2.5 text-xs"
+                              >
+                                <span className="text-[#475467]">
+                                  {String(
+                                    key
+                                  ).replace(
+                                    /_/g,
+                                    " "
+                                  )}
+                                </span>
+
+                                <span
+                                  className={
+                                    value
+                                      ? "font-bold text-[#28734E]"
+                                      : "font-bold text-[#A83E3E]"
+                                  }
+                                >
+                                  {value
+                                    ? "Pass"
+                                    : "Fail"}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-sm leading-6 text-[#98A2B3]">
+                          No checklist values were recorded.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+                <section className="rounded-[20px] border border-[#E3E6EB] bg-white p-5 sm:p-6">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF2FF] text-[#5658E8]">
+                      <FileText
+                        size={
+                          18
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#5658E8]">
+                        Job context
+                      </p>
+
+                      <h3 className="mt-1 text-lg font-semibold text-[#202938]">
+                        {
+                          selectedSet
+                            ?.job
+                            ?.title ||
+                          currentJobTitle
+                        }
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-[16px] border border-[#EEF0F3] bg-[#FCFCFD] p-4">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                      Job description
+                    </p>
+
+                    <div className="mt-2 max-h-[260px] overflow-y-auto whitespace-pre-wrap text-sm leading-6 text-[#475467]">
+                      {
+                        selectedSet
+                          ?.job
+                          ?.description ||
+                        "No job description returned."
+                      }
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-[20px] border border-[#E3E6EB] bg-white p-5 sm:p-6">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F4F5F8] text-[#667085]">
+                      <CalendarDays
+                        size={
+                          18
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#8A94A8]">
+                        Question Set
+                      </p>
+
+                      <h3 className="mt-1 text-lg font-semibold text-[#202938]">
+                        Configuration
+                      </h3>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                    <MetaCard
+                      label="Hiring year"
+                      value={
+                        selectedSet
+                          ?.question_set
+                          ?.hiring_year
+                      }
+                    />
+
+                    <MetaCard
+                      label="Hiring cycle"
+                      value={
+                        selectedSet
+                          ?.question_set
+                          ?.hiring_cycle
+                      }
+                    />
+
+                    <MetaCard
+                      label="Configured questions"
+                      value={
+                        selectedSet
+                          ?.configuration
+                          ?.total_questions
+                      }
+                    />
+
+                    <MetaCard
+                      label="Duration"
+                      value={
+                        selectedSet
+                          ?.configuration
+                          ?.duration_minutes
+                          ? `${selectedSet.configuration.duration_minutes} min`
+                          : "—"
+                      }
+                    />
+                  </div>
+                </section>
+              </div>
+
+              <section className="rounded-[20px] border border-[#DDDFF7] bg-[#F9F9FF] p-5 sm:p-6">
+                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#7862C8]">
+                  Coverage
+                </p>
+
+                <h3 className="mt-1.5 text-[22px] font-semibold text-[#36386E]">
+                  Review section by section
+                </h3>
+
+                <p className="mt-1.5 text-sm leading-6 text-[#667085]">
+                  Open a section to inspect its current questions.
+                </p>
+              </section>
+
+              {(setIsSubmitted || setIsApproved) && (
+                <section className="rounded-[20px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_26px_rgba(27,37,58,0.035)] sm:p-6">
+                  {setIsSubmitted ? (
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#5658E8]">
+                          Final decision
+                        </p>
+
+                        <h3 className="mt-1.5 text-[22px] font-semibold text-[#202938]">
+                          Complete the independent review
+                        </h3>
+
+                        <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[#667085]">
+                          Approve the complete set only when every slot is
+                          filled and every current question has been approved.
+                          A rejection sends the set back for revision.
+                        </p>
+
+                        {!setApprovalReady && (
+                          <div className="mt-3 rounded-md border border-[#F0E0BE] bg-[#FFFBF3] px-3 py-2.5 text-xs font-semibold leading-5 text-[#916C22]">
+                            Approval is currently blocked:{" "}
+                            {Number(
+                              selectedSummary.remaining_slots ??
+                                0
+                            )}{" "}
+                            slot(s) remaining, {" "}
+                            {Number(
+                              selectedSummary.pending_review ??
+                                0
+                            )}{" "}
+                            pending, and {" "}
+                            {Number(
+                              selectedSummary.rejected ??
+                                0
+                            )}{" "}
+                            rejected.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                        <button
+                          type="button"
+                          onClick={approveSet}
+                          disabled={
+                            !setApprovalReady ||
+                            approvingSetId !== null ||
+                            rejectingSetId !== null
+                          }
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#28734E] px-5 text-sm font-semibold text-white transition hover:bg-[#216240] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <CheckCircle2 size={16} />
+
+                          {approvingSetId !== null
+                            ? "Approving..."
+                            : "Approve Set"}
                         </button>
 
-                        {/* =================================================
-                            MCQ OPTIONS
-                        ================================================= */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRejectingSet(true);
+                            setRejectionReason("");
+                            setActionError("");
+                          }}
+                          disabled={
+                            approvingSetId !== null ||
+                            rejectingSetId !== null
+                          }
+                          className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#D9B5B5] bg-white px-5 text-sm font-semibold text-[#A83E3E] transition hover:bg-[#FFF8F8] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <XCircle size={16} />
 
-                        {Array.isArray(question.options) &&
-                          question.options.length > 0 && (
-                            <div className="mt-5 border-t border-[#E9EBEF] pt-4">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                                Options
+                          Reject Set
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#E2F3EA] text-[#28734E]">
+                          <Send size={18} />
+                        </div>
+
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#28734E]">
+                            Reviewer → HR handoff
+                          </p>
+
+                          <h3 className="mt-1.5 text-[22px] font-semibold text-[#202938]">
+                            {sentToHr
+                              ? "Assessment sent to HR"
+                              : "Assessment ready for HR"}
+                          </h3>
+
+                          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[#667085]">
+                            {sentToHr
+                              ? "The reviewer decision is complete and this approved assessment is now available in the HR workspace for availability and candidate-delivery configuration."
+                              : "The reviewer decision is complete. Hand the approved assessment to HR so HR can configure availability and candidate delivery."}
+                          </p>
+
+                          {sentToHr && selectedSet?.sent_to_hr_at && (
+                            <p className="mt-2 text-xs font-semibold text-[#28734E]">
+                              Sent to HR on {new Date(
+                                selectedSet.sent_to_hr_at
+                              ).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="w-full lg:w-auto">
+                        {sentToHr ? (
+                          <div className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-[#B9DEC9] bg-[#F3FBF6] px-5 text-sm font-semibold text-[#28734E] lg:w-auto">
+                            <CheckCircle2 size={16} />
+                            Sent to HR
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={sendSetToHr}
+                            disabled={sendingToHrSetId !== null}
+                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-[#5658E8] px-5 text-sm font-semibold text-white shadow-[0_7px_20px_rgba(86,88,232,0.18)] transition hover:bg-[#494BD8] disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
+                          >
+                            {sendingToHrSetId !== null ? (
+                              <RefreshCw
+                                size={16}
+                                className="animate-spin"
+                              />
+                            ) : (
+                              <Send size={16} />
+                            )}
+
+                            {sendingToHrSetId !== null
+                              ? "Sending to HR..."
+                              : "Send to HR"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {loadingSet ? (
+                <LoadingPanel
+                  text={
+                      reviewMode ===
+                      "completed"
+                        ? "Loading completed assessment-set review..."
+                        : "Loading submitted assessment set..."
+                    }
+                />
+              ) : sections.length ===
+                0 ? (
+                <EmptyPanel
+                  title="No reviewable sections"
+                  description="The submitted Assessment Set does not contain reviewable questions or slots."
+                />
+              ) : (
+                <div className="grid gap-4 xl:grid-cols-3">
+                  {sections.map(
+                    (
+                      section
+                    ) => (
+                      <button
+                        key={
+                          section.key
+                        }
+                        type="button"
+                        onClick={() =>
+                          openSection(
+                            section
+                          )
+                        }
+                        className="rounded-[20px] border border-[#E3E6EB] bg-white p-5 text-left shadow-[0_8px_26px_rgba(27,37,58,0.035)] transition hover:-translate-y-0.5 hover:border-[#C9CDF3] sm:p-6"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#7862C8]">
+                              Section
+                            </p>
+
+                            <h3 className="mt-1.5 text-[20px] font-semibold text-[#202938]">
+                              {
+                                section.name
+                              }
+                            </h3>
+
+                            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#98A2B3]">
+                              {
+                                section.section_type
+                              }
+                            </p>
+                          </div>
+
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EAE5F9] text-[#7862C8]">
+                            <ChevronRight
+                              size={
+                                18
+                              }
+                            />
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          <MetaCard
+                            label="Slots"
+                            value={
+                              section.slotCount
+                            }
+                          />
+
+                          <MetaCard
+                            label="Questions"
+                            value={
+                              section.questionCount
+                            }
+                          />
+
+                          <MetaCard
+                            label="Pending"
+                            value={
+                              section.pendingCount
+                            }
+                          />
+
+                          <MetaCard
+                            label="Approved"
+                            value={
+                              section.approvedCount
+                            }
+                          />
+                        </div>
+
+                        {section.rejectedCount >
+                          0 && (
+                          <div className="mt-4 rounded-md border border-[#E9C8C8] bg-[#FFF8F8] px-3 py-2.5 text-xs font-semibold text-[#A83E3E]">
+                            {
+                              section.rejectedCount
+                            }{" "}
+                            rejected question
+                            {
+                              section.rejectedCount ===
+                              1
+                                ? ""
+                                : "s"
+                            }
+                          </div>
+                        )}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+        {stage ===
+          "questions" &&
+          selectedSet &&
+          selectedSection && (
+            <section className="space-y-5">
+              <div className="rounded-[18px] border border-[#E3E6EB] bg-white p-5 sm:p-6">
+                <button
+                  type="button"
+                  onClick={
+                    backToSetDetail
+                  }
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-[#5658E8] hover:underline"
+                >
+                  <ArrowLeft
+                    size={
+                      14
+                    }
+                  />
+
+                  Back to set review
+                </button>
+
+                <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-[#EAE5F9] px-3 py-1.5 text-[10px] font-bold text-[#5658E8]">
+                        {
+                          getSetLabel(
+                            selectedSet
+                          )
+                        }
+                      </span>
+
+                      <span className="rounded-full bg-[#F4F5F8] px-3 py-1.5 text-[10px] font-bold text-[#667085]">
+                        {
+                          selectedSection.name
+                        }
+                      </span>
+                    </div>
+
+                    <h2 className="mt-2 text-[27px] font-semibold text-[#182033]">
+                      Question review
+                    </h2>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {reviewMode ===
+                      "completed" && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#EAE5F9] px-3 py-1.5 text-[10px] font-bold text-[#5658E8]">
+                        <Lock
+                          size={
+                            12
+                          }
+                        />
+                        Read-only history
+                      </span>
+                    )}
+
+                    <span className="rounded-full bg-[#F4F5F8] px-3 py-1.5 text-[10px] font-bold text-[#667085]">
+                      {
+                        visibleQuestions.length
+                      }{" "}
+                      shown
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_180px]">
+                  <div className="relative">
+                    <Search
+                      size={
+                        15
+                      }
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+                    />
+
+                    <input
+                      value={
+                        questionSearch
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setQuestionSearch(
+                          event.target
+                            .value
+                        )
+                      }
+                      placeholder="Search questions..."
+                      className="h-10 w-full rounded-md border border-[#D4DAE4] bg-white pl-10 pr-3 text-sm outline-none focus:border-[#5658E8]"
+                    />
+                  </div>
+
+                  <select
+                    value={
+                      statusFilter
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setStatusFilter(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="h-10 rounded-md border border-[#D4DAE4] bg-white px-3 text-sm outline-none focus:border-[#5658E8]"
+                  >
+                    <option value="all">
+                      All statuses
+                    </option>
+
+                    <option value="pending_review">
+                      Pending review
+                    </option>
+
+                    <option value="approved">
+                      Approved
+                    </option>
+
+                    <option value="rejected">
+                      Rejected
+                    </option>
+                  </select>
+
+                  <select
+                    value={
+                      sourceFilter
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setSourceFilter(
+                        event.target
+                          .value
+                      )
+                    }
+                    className="h-10 rounded-md border border-[#D4DAE4] bg-white px-3 text-sm outline-none focus:border-[#5658E8]"
+                  >
+                    <option value="all">
+                      All sources
+                    </option>
+
+                    <option value="ai_generated">
+                      AI generated
+                    </option>
+
+                    <option value="manual">
+                      Manual
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {visibleQuestions.length ===
+              0 ? (
+                <EmptyPanel
+                  title="No questions match"
+                  description="Try another search or filter."
+                />
+              ) : (
+                <div className="space-y-4">
+                  {visibleQuestions.map(
+                    (
+                      question
+                    ) => {
+                      const id =
+                        getQuestionId(
+                          question
+                        );
+
+                      const checks = [
+                        [
+                          "Question text",
+                          Boolean(
+                            String(
+                              question?.question_text ||
+                                ""
+                            ).trim()
+                          ),
+                        ],
+
+                        [
+                          "Question type",
+                          [
+                            "MCQ",
+                            "FREE_TEXT",
+                          ].includes(
+                            String(
+                              question?.question_type ||
+                                ""
+                            ).toUpperCase()
+                          ),
+                        ],
+
+                        [
+                          "Skill mapping",
+                          Number(
+                            question?.skill_id
+                          ) > 0,
+                        ],
+
+                        [
+                          "Difficulty",
+                          [
+                            "easy",
+                            "medium",
+                            "hard",
+                          ].includes(
+                            String(
+                              question?.difficulty ||
+                                ""
+                            ).toLowerCase()
+                          ),
+                        ],
+                      ];
+
+                      const passed =
+                        checks.filter(
+                          (
+                            item
+                          ) =>
+                            item[1]
+                        ).length;
+
+                      const isMcq =
+                        String(
+                          question?.question_type ||
+                            ""
+                        ).toUpperCase() ===
+                        "MCQ";
+
+                      const options =
+                        Array.isArray(
+                          question?.options
+                        )
+                          ? question.options
+                          : [];
+
+                      const busy =
+                        approvingId ===
+                          id ||
+                        rejectingId ===
+                          id;
+
+                      return (
+                        <article
+                          key={`${id}-${question.slot_id}`}
+                          className="overflow-hidden rounded-[20px] border border-[#E3E6EB] bg-white shadow-[0_8px_26px_rgba(27,37,58,0.035)]"
+                        >
+                          <div className="grid lg:grid-cols-[minmax(0,1fr)_310px]">
+                            <div className="p-5 sm:p-6">
+                              <div className="flex flex-wrap gap-2">
+                                <StatusBadge
+                                  status={
+                                    question.status
+                                  }
+                                />
+
+                                <span className="rounded-full bg-[#F4F5F8] px-2.5 py-1 text-[10px] font-semibold uppercase text-[#667085]">
+                                  {
+                                    question.question_type
+                                  }
+                                </span>
+
+                                <span className="rounded-full bg-[#EAE5F9] px-2.5 py-1 text-[10px] font-semibold capitalize text-[#7862C8]">
+                                  {
+                                    question.difficulty
+                                  }
+                                </span>
+
+                                <span className="inline-flex items-center gap-1 rounded-full bg-[#F3E3F2] px-2.5 py-1 text-[10px] font-semibold text-[#AA5E9C]">
+                                  {question.source ===
+                                  "ai_generated" ? (
+                                    <Bot
+                                      size={
+                                        11
+                                      }
+                                    />
+                                  ) : (
+                                    <FileText
+                                      size={
+                                        11
+                                      }
+                                    />
+                                  )}
+
+                                  {question.source ===
+                                  "ai_generated"
+                                    ? "AI Generated"
+                                    : "Manual"}
+                                </span>
+                              </div>
+
+                              <h3 className="mt-4 text-[17px] font-semibold leading-7 text-[#202938]">
+                                {
+                                  question.question_text ||
+                                  "No question text"
+                                }
+                              </h3>
+
+                              <p className="mt-2 text-[11px] text-[#98A2B3]">
+                                Question #
+                                {id ??
+                                  "—"}{" "}
+                                · Slot{" "}
+                                {
+                                  question.slot_number
+                                }{" "}
+                                · Skill{" "}
+                                {
+                                  question.skill_name ||
+                                  question.skill_id ||
+                                  "—"
+                                }{" "}
+                                · Version{" "}
+                                {
+                                  question.version ||
+                                  1
+                                }
                               </p>
 
-                              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                                {question.options.map(
-                                  (option, index) => (
+                              {isMcq &&
+                                options.length >
+                                  0 && (
+                                  <div className="mt-5 grid gap-2 md:grid-cols-2">
+                                    {options.map(
+                                      (
+                                        option,
+                                        index
+                                      ) => {
+                                        const correct =
+                                          option ===
+                                          question.correct_answer;
+
+                                        return (
+                                          <div
+                                            key={`${id}-${index}`}
+                                            className={`rounded-md border px-3 py-2.5 text-sm ${
+                                              correct
+                                                ? "border-[#BFE0CC] bg-[#F5FAF7] text-[#28734E]"
+                                                : "border-[#E3E6EB] bg-[#FCFCFD] text-[#475467]"
+                                            }`}
+                                          >
+                                            <span className="mr-2 font-semibold">
+                                              {
+                                                String.fromCharCode(
+                                                  65 +
+                                                    index
+                                                )
+                                              }
+                                              .
+                                            </span>
+
+                                            {
+                                              option
+                                            }
+
+                                            {correct && (
+                                              <span className="ml-2 text-[10px] font-bold uppercase">
+                                                Correct
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      }
+                                    )}
+                                  </div>
+                                )}
+
+                              {question.explanation && (
+                                <div className="mt-5 rounded-md border border-[#DDDFF7] bg-[#F9F9FF] p-4">
+                                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#7862C8]">
+                                    Explanation
+                                  </p>
+
+                                  <p className="mt-1.5 text-xs leading-5 text-[#667085]">
+                                    {
+                                      question.explanation
+                                    }
+                                  </p>
+                                </div>
+                              )}
+
+                              {question.rejection_reason && (
+                                <div className="mt-5 rounded-md border border-[#E9C8C8] bg-[#FFF8F8] p-4">
+                                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#A83E3E]">
+                                    Rejection reason
+                                  </p>
+
+                                  <p className="mt-1.5 text-xs leading-5 text-[#A83E3E]">
+                                    {
+                                      question.rejection_reason
+                                    }
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                                <MetaCard
+                                  label="Manager rating"
+                                  value={
+                                    question.manager_rating ??
+                                    "Not rated"
+                                  }
+                                />
+
+                                <MetaCard
+                                  label="Reviewer rating"
+                                  value={
+                                    question.reviewer_rating ??
+                                    "Not rated"
+                                  }
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openVersionHistory(
+                                    question
+                                  )
+                                }
+                                className="mt-5 inline-flex items-center gap-2 rounded-md border border-[#D4DAE4] bg-white px-3 py-2 text-xs font-semibold text-[#475467] hover:border-[#5658E8] hover:text-[#5658E8]"
+                              >
+                                <History
+                                  size={
+                                    14
+                                  }
+                                />
+
+                                Version history
+                              </button>
+                            </div>
+
+                            <aside className="border-t border-[#EEF0F3] bg-[#FCFCFD] p-5 lg:border-l lg:border-t-0">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                                    System checks
+                                  </p>
+
+                                  <p className="mt-1 text-sm font-semibold text-[#202938]">
+                                    {
+                                      passed
+                                    }
+                                    /
+                                    {
+                                      checks.length
+                                    }{" "}
+                                    passed
+                                  </p>
+                                </div>
+
+                                <ShieldCheck
+                                  size={
+                                    18
+                                  }
+                                  className="text-[#28734E]"
+                                />
+                              </div>
+
+                              <div className="mt-4 space-y-2">
+                                {checks.map(
+                                  ([
+                                    label,
+                                    ok,
+                                  ]) => (
                                     <div
-                                      key={`${question.id}-${index}`}
-                                      className="rounded-md border border-[#E6E9EE] bg-[#FCFCFD] px-3 py-2.5 text-sm text-[#667085]"
+                                      key={
+                                        label
+                                      }
+                                      className="flex items-center justify-between rounded-md border border-[#E7E9EE] bg-white px-3 py-2.5 text-[10px]"
                                     >
-                                      <span className="mr-2 font-semibold text-[#5658E8]">
-                                        {String.fromCharCode(
-                                          65 + index
-                                        )}
-                                        .
+                                      <span className="text-[#475467]">
+                                        {
+                                          label
+                                        }
                                       </span>
 
-                                      {option}
+                                      <span
+                                        className={
+                                          ok
+                                            ? "font-bold text-[#28734E]"
+                                            : "font-bold text-[#A83E3E]"
+                                        }
+                                      >
+                                        {ok
+                                          ? "Pass"
+                                          : "Fix"}
+                                      </span>
                                     </div>
                                   )
                                 )}
                               </div>
-                            </div>
-                          )}
 
-                        {/* =================================================
-                            AI EXPLANATION
-                        ================================================= */}
-
-                        {isAiGenerated &&
-                          question.explanation && (
-                            <div className="mt-5 rounded-md border border-[#DDDFF7] bg-[#F9F9FF] p-4">
-                              <div className="flex items-start gap-2.5">
-                                <Bot
-                                  size={15}
-                                  className="mt-0.5 shrink-0 text-[#5658E8]"
-                                />
-
-                                <div>
-                                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#5658E8]">
-                                    AI explanation
-                                  </p>
-
-                                  <p className="mt-1.5 text-xs leading-5 text-[#667085]">
-                                    {question.explanation}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                        {/* =================================================
-                            REVIEW EVIDENCE
-                        ================================================= */}
-
-                        <div className="mt-5 border-t border-[#E9EBEF] pt-4">
-                          <div className="flex items-center gap-2">
-                            <Clock3
-                              size={14}
-                              className="text-[#98A2B3]"
-                            />
-
-                            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                              Review evidence
-                            </p>
-                          </div>
-
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                            <div className="rounded-md border border-[#E8EBEF] bg-[#FCFCFD] px-3 py-2.5">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#A0A8B8]">
-                                Source
-                              </p>
-
-                              <p className="mt-1 text-xs font-semibold text-[#475467]">
-                                {isAiGenerated
-                                  ? "AI generated"
-                                  : "Manual"}
-                              </p>
-                            </div>
-
-                            <div className="rounded-md border border-[#E8EBEF] bg-[#FCFCFD] px-3 py-2.5">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#A0A8B8]">
-                                Creator
-                              </p>
-
-                              <p className="mt-1 text-xs font-semibold text-[#475467]">
-                                {question.created_by ??
-                                  "Not recorded"}
-                              </p>
-                            </div>
-
-                            <div className="rounded-md border border-[#E8EBEF] bg-[#FCFCFD] px-3 py-2.5">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#A0A8B8]">
-                                Submitted
-                              </p>
-
-                              <p className="mt-1 text-xs font-semibold text-[#475467]">
-                                {question.created_at
-                                  ? new Date(
-                                      question.created_at
-                                    ).toLocaleString()
-                                  : "Not recorded"}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* =================================================
-                          REVIEW CONTROL PANEL
-                      ================================================= */}
-
-                      <div className="border-t border-[#E8EBEF] bg-[#FAFBFC] p-5 lg:border-l lg:border-t-0">
-
-                        {/* =================================================
-                            SYSTEM CHECKS
-                        ================================================= */}
-
-                        <div>
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                                System checks
-                              </p>
-
-                              <p className="mt-1 text-sm font-semibold text-[#202938]">
-                                {passedCount}/
-                                {totalCount} checks passed
-                              </p>
-                            </div>
-
-                            <span
-                              className={
-                                allPassed
-                                  ? "inline-flex items-center gap-1.5 rounded-full bg-[#E2F3EA] px-2.5 py-1.5 text-[10px] font-bold text-[#28734E]"
-                                  : "inline-flex items-center gap-1.5 rounded-full bg-[#FFF1EC] px-2.5 py-1.5 text-[10px] font-bold text-[#A76D5B]"
-                              }
-                            >
-                              {allPassed ? (
-                                <CheckCircle2 size={12} />
-                              ) : (
-                                <AlertCircle size={12} />
-                              )}
-
-                              {allPassed
-                                ? "Ready for review"
-                                : "Needs attention"}
-                            </span>
-                          </div>
-
-                          <div className="mt-4 space-y-2">
-                            {checks.map((check) => (
-                              <div
-                                key={check.label}
-                                className="flex items-center justify-between gap-3 rounded-md border border-[#E7E9ED] bg-white px-3 py-2.5"
-                              >
-                                <span className="text-[11px] font-medium text-[#667085]">
-                                  {check.label}
-                                </span>
-
-                                {check.passed ? (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#28734E]">
-                                    <CheckCircle2 size={12} />
-                                    Pass
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#A83E3E]">
-                                    <XCircle size={12} />
-                                    Check
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-
-                          <p className="mt-3 text-[10px] leading-5 text-[#98A2B3]">
-                            These checks cover fields visible to the review
-                            workspace. They support the reviewer but do not
-                            replace the independent content-quality decision.
-                          </p>
-                        </div>
-
-                        {/* =================================================
-                            ANSWER KEY
-                        ================================================= */}
-
-                        <div className="mt-6 border-t border-[#E1E4EA] pt-5">
-                          <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                            Answer key
-                          </p>
-
-                          {question.correct_answer ? (
-                            <div className="mt-3 rounded-md border border-[#D8DBF7] bg-[#F8F8FF] px-4 py-3">
-                              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#8A94A8]">
-                                Correct response
-                              </p>
-
-                              <p className="mt-1.5 break-words text-sm font-semibold text-[#5658E8]">
-                                {question.correct_answer}
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="mt-3 rounded-md border border-dashed border-[#D9DEE7] bg-white px-4 py-3">
-                              <p className="text-xs leading-5 text-[#98A2B3]">
-                                Not required for free-text questions.
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* =================================================
-                            DECISION
-                        ================================================= */}
-
-                        <div className="mt-5 border-t border-[#E1E4EA] pt-5">
-                          <div className="flex items-center gap-2">
-                            <UserRound
-                              size={14}
-                              className="text-[#AA5E9C]"
-                            />
-
-                            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                              Reviewer decision
-                            </p>
-                          </div>
-
-                          <p className="mt-2 text-xs leading-5 text-[#667085]">
-                            The reviewer makes the final content decision
-                            after considering the question and system checks.
-                          </p>
-
-                          <div className="mt-4 grid gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleApprove(question)
-                              }
-                              disabled={busy || !allPassed}
-                              title={
-                                !allPassed
-                                  ? "Resolve the visible system check failures before approving."
-                                  : "Approve question"
-                              }
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#28734E] px-4 text-sm font-semibold text-white transition hover:bg-[#236542] disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isApproving ? (
-                                <RefreshCw
-                                  size={15}
-                                  className="animate-spin"
-                                />
-                              ) : (
-                                <CheckCircle2 size={15} />
-                              )}
-
-                              {isApproving
-                                ? "Approving..."
-                                : "Approve"}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openRejectModal(question)
-                              }
-                              disabled={busy}
-                              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#D8B7B0] bg-white px-4 text-sm font-semibold text-[#A76D5B] transition hover:border-[#A76D5B] hover:bg-[#FFF8F6] disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              <XCircle size={15} />
-                              Reject
-                            </button>
-                          </div>
-
-                          {!allPassed && (
-                            <div className="mt-3 rounded-md border border-[#EBCFC6] bg-[#FFF8F6] px-3 py-2.5">
-                              <p className="text-[10px] leading-5 text-[#A76D5B]">
-                                Approval is disabled until the visible
-                                system-check failures are resolved.
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* =================================================
-                            REVIEW STATUS
-                        ================================================= */}
-
-                        <div className="mt-5 rounded-md border border-[#E4E6EB] bg-white px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#98A2B3]">
-                              Current status
-                            </span>
-
-                            <span className="rounded-full bg-[#FFF1EC] px-2.5 py-1 text-[10px] font-semibold text-[#A76D5B]">
-                              Pending review
-                            </span>
-                          </div>
-
-                          <p className="mt-2 text-[10px] leading-5 text-[#98A2B3]">
-                            Reviewer decisions are persisted by the existing
-                            backend approval/rejection workflow.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* =====================================================
-            REJECTION MODAL
-        ===================================================== */}
-
-        {isRejectModalOpen && selectedQuestion && (
-          <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-[#172033]/55 px-3 py-3 backdrop-blur-[4px] sm:items-center sm:px-4"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) {
-                closeRejectModal();
-              }
-            }}
-          >
-            <div
-              className="w-full max-w-xl overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white shadow-[0_24px_64px_rgba(38,40,79,0.22)]"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="reject-question-title"
-            >
-              <div className="flex items-center justify-between bg-[#26284F] px-5 py-4 sm:px-6">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FFD8C7]">
-                    Assessment review
-                  </p>
-
-                  <h2
-                    id="reject-question-title"
-                    className="mt-1 text-[21px] font-semibold tracking-[-0.02em] text-white"
-                  >
-                    Reject question
-                  </h2>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={closeRejectModal}
-                  disabled={rejectingId !== null}
-                  aria-label="Close"
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-[#E1E5F2] transition hover:bg-white/[0.12] hover:text-white disabled:opacity-50"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <form
-                onSubmit={handleReject}
-                className="space-y-5 p-5 sm:p-6"
-              >
-                <div className="rounded-md border border-[#E8EBEF] bg-[#FAFBFC] p-4">
-                  <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
-                    Question
-                  </p>
-
-                  <p className="mt-2 text-sm font-semibold leading-6 text-[#202938]">
-                    {selectedQuestion.question_text}
-                  </p>
-                </div>
-
-                {actionError && (
-                  <div className="flex items-start gap-3 rounded-md border border-[#E9C8C8] bg-[#FBF2F2] px-4 py-3 text-[12.5px] leading-5 text-[#A83E3E]">
-                    <AlertCircle
-                      size={17}
-                      className="mt-0.5 shrink-0"
-                    />
-
-                    <span>{actionError}</span>
-                  </div>
-                )}
-
-                <div>
-                  <label
-                    htmlFor="rejection-reason"
-                    className="mb-2 block text-[12.5px] font-semibold text-[#344054]"
-                  >
-                    Rejection reason
-                  </label>
-
-                  <textarea
-                    id="rejection-reason"
-                    value={rejectionReason}
-                    onChange={(event) =>
-                      setRejectionReason(
-                        event.target.value
-                      )
-                    }
-                    rows={5}
-                    autoFocus
-                    placeholder="Explain what needs to be corrected or improved..."
-                    className="w-full rounded-md border border-[#D7DDE6] bg-[#F8F9FC] px-4 py-3 text-sm leading-6 text-[#202938] outline-none transition placeholder:text-[#98A2B3] focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
-                  />
-                </div>
-
-                <div className="rounded-md border border-[#E7E9EE] bg-[#FAFBFC] px-4 py-3">
-                  <p className="text-[10px] leading-5 text-[#667085]">
-                    Rejection requires a recorded reason so the question
-                    owner has actionable feedback for revision.
-                  </p>
-                </div>
-
-                <div className="flex flex-col-reverse gap-3 border-t border-[#E4E7EC] pt-5 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={closeRejectModal}
-                    disabled={rejectingId !== null}
-                    className="h-11 rounded-md border border-[#B8C0CB] bg-white px-5 text-sm font-medium text-[#667085] transition hover:border-[#5658E8] hover:bg-[#F8F8FF] hover:text-[#5658E8] disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={
-                      rejectingId !== null ||
-                      !rejectionReason.trim()
-                    }
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#A76D5B] px-5 text-sm font-semibold text-white transition hover:bg-[#955D4D] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {rejectingId !== null ? (
-                      <>
-                        <RefreshCw
-                          size={15}
-                          className="animate-spin"
-                        />
-                        Rejecting...
-                      </>
-                    ) : (
-                      <>
-                        <XCircle size={15} />
-                        Reject Question
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* =====================================================
-            VERSION HISTORY MODAL
-        ===================================================== */}
-
-        {isVersionHistoryOpen &&
-          versionHistoryQuestion && (
-            <div
-              className="fixed inset-0 z-50 flex items-end justify-center bg-[#172033]/55 px-3 py-3 backdrop-blur-[4px] sm:items-center sm:px-4"
-              role="presentation"
-              onMouseDown={(event) => {
-                if (event.target === event.currentTarget) {
-                  closeVersionHistory();
-                }
-              }}
-            >
-              <div
-                className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-[20px] border border-[#E3E6EB] bg-white shadow-[0_24px_72px_rgba(38,40,79,0.22)]"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="version-history-title"
-              >
-                <div className="flex items-center justify-between bg-[#26284F] px-5 py-4 sm:px-6">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <History
-                        size={16}
-                        className="text-[#FFD8C7]"
-                      />
-
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FFD8C7]">
-                        Question lifecycle
-                      </p>
-                    </div>
-
-                    <h2
-                      id="version-history-title"
-                      className="mt-1 truncate text-[21px] font-semibold tracking-[-0.02em] text-white"
-                    >
-                      Version history
-                    </h2>
-
-                    <p className="mt-1 max-w-3xl truncate text-xs text-[#D8DCE9]">
-                      Question #{versionHistoryQuestion.id}
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={closeVersionHistory}
-                    disabled={versionHistoryLoading}
-                    aria-label="Close version history"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] text-[#E1E5F2] transition hover:bg-white/[0.12] hover:text-white disabled:opacity-50"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                <div className="max-h-[calc(90vh-80px)] overflow-y-auto p-5 sm:p-6">
-
-                  {/* =================================================
-                      CURRENT VERSION SUMMARY
-                  ================================================= */}
-
-                  <div className="rounded-[18px] border border-[#DDDFF7] bg-[#F9F9FF] p-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#5658E8]">
-                          Current question
-                        </p>
-
-                        <h3 className="mt-2 text-[16px] font-semibold leading-7 text-[#202938]">
-                          {versionHistoryQuestion.question_text}
-                        </h3>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#667085]">
-                            v{versionHistoryQuestion.version || 1}
-                          </span>
-
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold capitalize text-[#7862C8]">
-                            {versionHistoryQuestion.difficulty}
-                          </span>
-
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#667085]">
-                            {versionHistoryQuestion.question_type}
-                          </span>
-
-                          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-[#AA5E9C]">
-                            {versionHistoryQuestion.source ===
-                            "ai_generated"
-                              ? "AI Generated"
-                              : "Manual"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2 rounded-md border border-[#E2E4F0] bg-white px-3 py-2">
-                        <History
-                          size={14}
-                          className="text-[#5658E8]"
-                        />
-
-                        <span className="text-[11px] font-semibold text-[#475467]">
-                          {versionHistory.length}{" "}
-                          {versionHistory.length === 1
-                            ? "version"
-                            : "versions"}{" "}
-                          retained
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* =================================================
-                      LOADING
-                  ================================================= */}
-
-                  {versionHistoryLoading && (
-                    <div className="mt-5 flex items-center justify-center rounded-[18px] border border-[#E3E6EB] bg-white p-10">
-                      <div className="flex items-center gap-2 text-sm font-medium text-[#667085]">
-                        <RefreshCw
-                          size={16}
-                          className="animate-spin text-[#5658E8]"
-                        />
-                        Loading version history...
-                      </div>
-                    </div>
-                  )}
-
-                  {/* =================================================
-                      ERROR
-                  ================================================= */}
-
-                  {!versionHistoryLoading &&
-                    versionHistoryError && (
-                      <div className="mt-5 rounded-[18px] border border-[#E9C8C8] bg-[#FFF8F8] p-5">
-                        <div className="flex items-start gap-3">
-                          <AlertCircle
-                            size={18}
-                            className="mt-0.5 text-[#A83E3E]"
-                          />
-
-                          <div>
-                            <p className="text-sm font-semibold text-[#8F3636]">
-                              Version history unavailable
-                            </p>
-
-                            <p className="mt-1.5 text-sm leading-6 text-[#A83E3E]">
-                              {versionHistoryError}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                  {/* =================================================
-                      VERSION TIMELINE
-                  ================================================= */}
-
-                  {!versionHistoryLoading &&
-                    !versionHistoryError &&
-                    versionHistory.length > 0 && (
-                      <div className="mt-6">
-                        <div className="mb-4 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#5658E8]">
-                              Historical record
-                            </p>
-
-                            <h3 className="mt-1 text-[18px] font-semibold text-[#182033]">
-                              Content timeline
-                            </h3>
-                          </div>
-
-                          <span className="hidden rounded-full bg-[#F4F5F8] px-3 py-1.5 text-[10px] font-semibold text-[#667085] sm:inline-flex">
-                            Immutable snapshots
-                          </span>
-                        </div>
-
-                        <div className="space-y-4">
-                          {versionHistory.map(
-                            (version, index) => {
-                              const previousVersion =
-                                versionHistory[index - 1];
-
-                              const changedFields =
-                                getChangedFields(
-                                  previousVersion,
-                                  version
-                                );
-
-                              const isCurrentVersion =
-                                version.version ===
-                                versionHistoryQuestion.version;
-
-                              return (
-                                <article
-                                  key={version.id}
-                                  className={
-                                    isCurrentVersion
-                                      ? "rounded-[18px] border border-[#CFCDF4] bg-[#FBFBFF] p-5"
-                                      : "rounded-[18px] border border-[#E3E6EB] bg-white p-5"
+                              <div className="mt-5 rounded-md border border-[#DDDFF7] bg-white p-4">
+                                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                                  Answer key
+                                </p>
+
+                                <p className="mt-1.5 text-sm font-semibold text-[#5658E8]">
+                                  {
+                                    question.correct_answer ||
+                                    "—"
                                   }
-                                >
-                                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                    <div className="flex min-w-0 gap-3">
-                                      <div
-                                        className={
-                                          isCurrentVersion
-                                            ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#E9E8FF] text-[#5658E8]"
-                                            : "flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#F4F5F8] text-[#667085]"
-                                        }
-                                      >
-                                        <History
-                                          size={17}
-                                        />
-                                      </div>
+                                </p>
+                              </div>
 
-                                      <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <h4 className="text-sm font-semibold text-[#202938]">
-                                            Version{" "}
-                                            {version.version}
-                                          </h4>
+                              {question.status ===
+                                "pending_review" &&
+                              reviewMode ===
+                                "active" ? (
+                                <div className="mt-5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      approveQuestion(
+                                        question
+                                      )
+                                    }
+                                    disabled={
+                                      busy
+                                    }
+                                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#28734E] text-sm font-semibold text-white disabled:opacity-60"
+                                  >
+                                    <CheckCircle2
+                                      size={
+                                        16
+                                      }
+                                    />
 
-                                          {isCurrentVersion && (
-                                            <span className="rounded-full bg-[#E9E8FF] px-2.5 py-1 text-[10px] font-bold text-[#5658E8]">
-                                              Current
-                                            </span>
-                                          )}
-                                        </div>
+                                    {approvingId ===
+                                    id
+                                      ? "Approving..."
+                                      : "Approve"}
+                                  </button>
 
-                                        <p className="mt-1 text-[10px] text-[#98A2B3]">
-                                          Recorded{" "}
-                                          {version.created_at
-                                            ? new Date(
-                                                version.created_at
-                                              ).toLocaleString()
-                                            : "timestamp unavailable"}
-                                        </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRejectingQuestion(
+                                        question
+                                      );
 
-                                        <p className="mt-0.5 text-[10px] text-[#98A2B3]">
-                                          Changed by{" "}
-                                          {version.changed_by ??
-                                            "Not recorded"}
-                                        </p>
-                                      </div>
-                                    </div>
+                                      setRejectionReason(
+                                        ""
+                                      );
 
-                                    <div className="flex flex-wrap gap-2">
-                                      {changedFields.map(
-                                        (field) => (
-                                          <span
-                                            key={`${version.id}-${field}`}
-                                            className="rounded-full border border-[#E0E3EA] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#667085]"
-                                          >
-                                            {field}
-                                          </span>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
+                                      setActionError(
+                                        ""
+                                      );
+                                    }}
+                                    disabled={
+                                      busy
+                                    }
+                                    className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-[#D9B5B5] bg-white text-sm font-semibold text-[#A83E3E] disabled:opacity-60"
+                                  >
+                                    <XCircle
+                                      size={
+                                        16
+                                      }
+                                    />
 
-                                  <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                                    <div className="rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-4">
-                                      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#98A2B3]">
-                                        Question
-                                      </p>
-
-                                      <p className="mt-2 text-sm font-semibold leading-6 text-[#202938]">
-                                        {version.question_text}
-                                      </p>
-                                    </div>
-
-                                    <div className="grid gap-3 sm:grid-cols-3">
-                                      <div className="rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-3">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#98A2B3]">
-                                          Skill
-                                        </p>
-
-                                        <p className="mt-1 text-xs font-semibold text-[#475467]">
-                                          {version.skill_id}
-                                        </p>
-                                      </div>
-
-                                      <div className="rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-3">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#98A2B3]">
-                                          Difficulty
-                                        </p>
-
-                                        <p className="mt-1 text-xs font-semibold capitalize text-[#475467]">
-                                          {version.difficulty}
-                                        </p>
-                                      </div>
-
-                                      <div className="rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-3">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#98A2B3]">
-                                          Type
-                                        </p>
-
-                                        <p className="mt-1 text-xs font-semibold text-[#475467]">
-                                          {version.question_type}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {Array.isArray(
-                                    version.options
-                                  ) &&
-                                    version.options.length > 0 && (
-                                      <div className="mt-4 rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-4">
-                                        <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#98A2B3]">
-                                          Options
-                                        </p>
-
-                                        <div className="mt-3 grid gap-2 md:grid-cols-2">
-                                          {version.options.map(
-                                            (
-                                              option,
-                                              optionIndex
-                                            ) => (
-                                              <div
-                                                key={`${version.id}-${optionIndex}`}
-                                                className="rounded-md border border-[#E6E9EE] bg-white px-3 py-2.5 text-sm text-[#667085]"
-                                              >
-                                                <span className="mr-2 font-semibold text-[#5658E8]">
-                                                  {String.fromCharCode(
-                                                    65 +
-                                                      optionIndex
-                                                  )}
-                                                  .
-                                                </span>
-
-                                                {option}
-                                              </div>
-                                            )
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                  {version.correct_answer && (
-                                    <div className="mt-4 rounded-md border border-[#D8DBF7] bg-[#F8F8FF] p-4">
-                                      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#8A94A8]">
-                                        Answer key
-                                      </p>
-
-                                      <p className="mt-1.5 text-sm font-semibold text-[#5658E8]">
-                                        {version.correct_answer}
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  {version.explanation && (
-                                    <div className="mt-4 rounded-md border border-[#E7E9EE] bg-[#FCFCFD] p-4">
-                                      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#98A2B3]">
-                                        Explanation
-                                      </p>
-
-                                      <p className="mt-1.5 text-xs leading-5 text-[#667085]">
-                                        {version.explanation}
-                                      </p>
-                                    </div>
-                                  )}
-                                </article>
-                              );
-                            }
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                  {!versionHistoryLoading &&
-                    !versionHistoryError &&
-                    versionHistory.length === 0 && (
-                      <div className="mt-5 rounded-[18px] border border-dashed border-[#C9CEDB] bg-white p-10 text-center">
-                        <History
-                          size={24}
-                          className="mx-auto text-[#98A2B3]"
-                        />
-
-                        <h3 className="mt-3 text-sm font-semibold text-[#202938]">
-                          No historical versions found
-                        </h3>
-
-                        <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-[#98A2B3]">
-                          This question does not currently have
-                          version-history records available.
-                        </p>
-                      </div>
-                    )}
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="mt-5 rounded-md border border-[#E7E9EE] bg-white p-3 text-xs leading-5 text-[#667085]">
+                                  {reviewMode ===
+                                    "completed"
+                                    ? "Completed review history is read-only. No question decision can be changed here."
+                                    : "This question is read-only in its current state."}
+                                </div>
+                              )}
+                            </aside>
+                          </div>
+                        </article>
+                      );
+                    }
+                  )}
                 </div>
-              </div>
-            </div>
+              )}
+            </section>
           )}
       </div>
+
+      {rejectingSet && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#101828]/35 p-4">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              rejectSet();
+            }}
+            className="w-full max-w-lg rounded-[20px] bg-white p-6 shadow-[0_24px_70px_rgba(16,24,40,0.20)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#A83E3E]">
+                  Reject assessment set
+                </p>
+
+                <h3 className="mt-1 text-xl font-semibold text-[#202938]">
+                  {
+                    selectedSet
+                      ? getSetLabel(
+                          selectedSet
+                        )
+                      : "Assessment Set"
+                  }
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    rejectingSetId !==
+                    null
+                  ) {
+                    return;
+                  }
+
+                  setRejectingSet(
+                    false
+                  );
+
+                  setRejectionReason(
+                    ""
+                  );
+                }}
+                className="rounded-md p-2 text-[#667085] hover:bg-[#F4F5F8]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-[#667085]">
+              Enter a clear reason so the Assessment Manager knows exactly
+              what must be revised before resubmission.
+            </p>
+
+            <textarea
+              value={
+                rejectionReason
+              }
+              onChange={(
+                event
+              ) =>
+                setRejectionReason(
+                  event.target
+                    .value
+                )
+              }
+              rows={5}
+              placeholder="Example: Several questions do not match the required difficulty or skill coverage."
+              className="mt-4 w-full rounded-md border border-[#D4DAE4] p-3 text-sm outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+            />
+
+            {actionError && (
+              <p className="mt-2 text-xs font-semibold text-[#A83E3E]">
+                {
+                  actionError
+                }
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    rejectingSetId !==
+                    null
+                  ) {
+                    return;
+                  }
+
+                  setRejectingSet(
+                    false
+                  );
+
+                  setRejectionReason(
+                    ""
+                  );
+                }}
+                className="rounded-md border border-[#D4DAE4] bg-white px-4 py-2.5 text-sm font-semibold text-[#475467]"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={
+                  rejectingSetId !==
+                    null ||
+                  !rejectionReason.trim()
+                }
+                className="rounded-md bg-[#A83E3E] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {rejectingSetId !==
+                null
+                  ? "Rejecting..."
+                  : "Reject Set"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {rejectingQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#101828]/35 p-4">
+          <form
+            onSubmit={
+              rejectQuestion
+            }
+            className="w-full max-w-lg rounded-[20px] bg-white p-6 shadow-[0_24px_70px_rgba(16,24,40,0.20)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#A83E3E]">
+                  Reject question
+                </p>
+
+                <h3 className="mt-1 text-xl font-semibold text-[#202938]">
+                  Question #
+                  {
+                    getQuestionId(
+                      rejectingQuestion
+                    )
+                  }
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    rejectingId !==
+                    null
+                  ) {
+                    return;
+                  }
+
+                  setRejectingQuestion(
+                    null
+                  );
+
+                  setRejectionReason(
+                    ""
+                  );
+                }}
+                className="rounded-md p-2 text-[#667085] hover:bg-[#F4F5F8]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-[#667085]">
+              Enter a clear reason so the Assessment Manager knows what must
+              be corrected.
+            </p>
+
+            <textarea
+              value={
+                rejectionReason
+              }
+              onChange={(
+                event
+              ) =>
+                setRejectionReason(
+                  event.target
+                    .value
+                )
+              }
+              rows={5}
+              placeholder="Example: The answer key is ambiguous."
+              className="mt-4 w-full rounded-md border border-[#D4DAE4] p-3 text-sm outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+            />
+
+            {actionError && (
+              <p className="mt-2 text-xs font-semibold text-[#A83E3E]">
+                {
+                  actionError
+                }
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    rejectingId !==
+                    null
+                  ) {
+                    return;
+                  }
+
+                  setRejectingQuestion(
+                    null
+                  );
+
+                  setRejectionReason(
+                    ""
+                  );
+                }}
+                className="rounded-md border border-[#D4DAE4] bg-white px-4 py-2.5 text-sm font-semibold text-[#475467]"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={
+                  rejectingId !==
+                  null
+                }
+                className="rounded-md bg-[#A83E3E] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {
+                  rejectingId !==
+                  null
+                    ? "Rejecting..."
+                    : "Reject question"
+                }
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {versionQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#101828]/35 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-[20px] bg-white shadow-[0_24px_70px_rgba(16,24,40,0.20)]">
+            <div className="flex items-center justify-between border-b border-[#EAECF0] px-5 py-4">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#7862C8]">
+                  Version history
+                </p>
+
+                <h3 className="mt-1 text-lg font-semibold text-[#202938]">
+                  Question #
+                  {
+                    getQuestionId(
+                      versionQuestion
+                    )
+                  }
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    versionsLoading
+                  ) {
+                    return;
+                  }
+
+                  setVersionQuestion(
+                    null
+                  );
+
+                  setVersions(
+                    []
+                  );
+
+                  setVersionsError(
+                    ""
+                  );
+                }}
+                className="rounded-md p-2 text-[#667085] hover:bg-[#F4F5F8]"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[70vh] overflow-y-auto p-5">
+              {versionsLoading ? (
+                <LoadingPanel
+                  text="Loading version history..."
+                />
+              ) : versionsError ? (
+                <div className="rounded-md border border-[#E9C8C8] bg-[#FFF8F8] p-4 text-sm text-[#A83E3E]">
+                  {
+                    versionsError
+                  }
+                </div>
+              ) : versions.length ===
+                0 ? (
+                <div className="rounded-md border border-dashed border-[#CBD2DD] p-8 text-center text-sm text-[#98A2B3]">
+                  No version history available.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {versions.map(
+                    (
+                      version,
+                      index
+                    ) => (
+                      <article
+                        key={
+                          version.id ||
+                          `${version.version}-${index}`
+                        }
+                        className="rounded-[16px] border border-[#E3E6EB] bg-[#FCFCFD] p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="rounded-full bg-[#EAE5F9] px-2.5 py-1 text-[10px] font-semibold text-[#7862C8]">
+                            v
+                            {
+                              version.version ||
+                              index +
+                                1
+                            }
+                          </span>
+
+                          <span className="text-[10px] text-[#98A2B3]">
+                            {version.created_at
+                              ? new Date(
+                                  version.created_at
+                                ).toLocaleString()
+                              : ""}
+                          </span>
+                        </div>
+
+                        <p className="mt-4 text-sm font-semibold leading-6 text-[#202938]">
+                          {
+                            version.question_text
+                          }
+                        </p>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <MetaCard
+                            label="Skill"
+                            value={
+                              version.skill_id
+                            }
+                          />
+
+                          <MetaCard
+                            label="Answer"
+                            value={
+                              version.correct_answer ||
+                              "—"
+                            }
+                          />
+
+                          <MetaCard
+                            label="Source"
+                            value={
+                              version.source ||
+                              "—"
+                            }
+                          />
+                        </div>
+                      </article>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </RecruiterLayout>
   );
 }

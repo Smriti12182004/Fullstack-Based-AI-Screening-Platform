@@ -12,7 +12,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
@@ -61,10 +60,19 @@ class QuestionVersion(Base):
         nullable=False,
     )
 
+    # Snapshot the semantic section purpose together with the rest of the
+    # immutable question content.
+    section_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="conceptual",
+        server_default="conceptual",
+        index=True,
+    )
+
     skill_id: Mapped[int] = mapped_column(
         ForeignKey(
             "skills.id",
-            ondelete="RESTRICT",
         ),
         nullable=False,
         index=True,

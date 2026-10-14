@@ -1,17 +1,17 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.db.base import Base
 from app.db.timestamps import utc_now
-from sqlalchemy import DateTime, ForeignKey, String
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.question import Question
     from app.models.question_section import QuestionSection
     from app.models.question_set import QuestionSet
-    from app.models.skill import Skill
+    from app.models.section_skill import SectionSkill
 
 
 class Section(Base):
@@ -23,13 +23,10 @@ class Section(Base):
     )
 
     question_set_id: Mapped[int] = mapped_column(
-        ForeignKey("question_sets.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-
-    skill_id: Mapped[int] = mapped_column(
-        ForeignKey("skills.id", ondelete="RESTRICT"),
+        ForeignKey(
+            "question_sets.id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
         index=True,
     )
@@ -39,26 +36,34 @@ class Section(Base):
         nullable=False,
     )
 
+    # Semantic section purpose.
+    # Supported values:
+    #   conceptual
+    #   implementation
+    #   free_text
+    section_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="conceptual",
+        server_default="conceptual",
+        index=True,
+    )
+
+    # Legacy compatibility field. The real per-skill distribution
+    # lives on SectionSkill.easy_count / medium_count / hard_count.
+    difficulty: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        index=True,
+    )
+
     display_order: Mapped[int] = mapped_column(
+        Integer,
         nullable=False,
-    )
-
-    easy_count: Mapped[int] = mapped_column(
-        nullable=False,
-        default=0,
-    )
-
-    medium_count: Mapped[int] = mapped_column(
-        nullable=False,
-        default=0,
-    )
-
-    hard_count: Mapped[int] = mapped_column(
-        nullable=False,
-        default=0,
     )
 
     is_locked: Mapped[bool] = mapped_column(
+        Boolean,
         nullable=False,
         default=False,
     )
@@ -81,8 +86,11 @@ class Section(Base):
         back_populates="sections",
     )
 
-    skill: Mapped["Skill"] = relationship(
-        "Skill",
+    section_skills: Mapped[list["SectionSkill"]] = relationship(
+        "SectionSkill",
+        back_populates="section",
+        cascade="all, delete-orphan",
+        order_by="SectionSkill.id",
     )
 
     question_sections: Mapped[list["QuestionSection"]] = relationship(

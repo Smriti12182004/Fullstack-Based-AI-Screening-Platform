@@ -48,7 +48,7 @@ function CandidateDashboard() {
   };
 
   const getDisplayName = () => {
-    return auth?.username || "there";
+    return auth?.full_name?.trim() || auth?.username || "there";
   };
 
   const greeting = getGreeting();

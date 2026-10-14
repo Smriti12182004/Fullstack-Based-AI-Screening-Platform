@@ -1,11 +1,22 @@
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
-from app.models import Job, Question, User
+from app.models import (
+    Job,
+    JobAssessmentAccess,
+    Question,
+    QuestionBank,
+    QuestionSection,
+    QuestionSet,
+    Section,
+    SectionSkill,
+    User,
+)
 from app.schemas.question import (
     QuestionCreate,
     QuestionGenerationRequest,
@@ -15,12 +26,15 @@ from app.schemas.question import (
     QuestionUpdate,
     QuestionVersionResponse,
 )
-from app.models.job_assessment_access import JobAssessmentAccess
 from app.schemas.question_section import (
     QuestionSectionCreate,
     QuestionSectionResponse,
 )
 from app.services.llm_service import LLMServiceError
+from app.schemas.question_set_pool_generation import (
+    QuestionSetPoolGenerationRequest,
+    QuestionSetPoolGenerationResponse,
+)
 from app.services.question_service import (
     QuestionServiceError,
     approve_question,
@@ -29,6 +43,10 @@ from app.services.question_service import (
     get_questions,
     reject_question,
     update_question,
+)
+from app.services.question_set_pool_generation_service import (
+    QuestionSetPoolServiceError,
+    generate_question_set_pool,
 )
 from app.services.question_section_service import (
     QuestionSectionServiceError,
@@ -54,6 +72,7 @@ class SemanticQuestionSearchResult(BaseModel):
     """One semantically retrieved question with its similarity score."""
 
     question: QuestionResponse
+
     score: float
 
 
@@ -104,12 +123,15 @@ def create_question_endpoint(
             db=db,
             question_text=question.question_text,
             question_type=question.question_type,
+            section_type=question.section_type,
             skill_id=question.skill_id,
             difficulty=question.difficulty,
             options=question.options,
             correct_answer=question.correct_answer,
             created_by=current_user["user_id"],
+            question_bank_id=question.question_bank_id,
         )
+
     except QuestionServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -173,6 +195,12 @@ def generate_questions_endpoint(
             ),
         )
 
+    hiring_year = (
+        request.hiring_year
+        if request.hiring_year is not None
+        else job.created_at.year
+    )
+
     try:
         questions = generate_questions(
             db=db,
@@ -181,6 +209,10 @@ def generate_questions_endpoint(
             number_of_questions=request.number_of_questions,
             difficulty=request.difficulty,
             created_by=current_user["user_id"],
+            hiring_year=request.hiring_year,
+            section_type=request.section_type,
+            generation_mode=request.generation_mode,
+            custom_topic=request.custom_topic,
         )
 
     except QuestionServiceError as exc:
@@ -199,10 +231,90 @@ def generate_questions_endpoint(
 
     return QuestionGenerationResponse(
         job_id=request.job_id,
+        hiring_year=hiring_year,
         number_requested=request.number_of_questions,
         generated_count=len(questions),
         questions=questions,
     )
+
+
+@router.post(
+    "/generate-for-question-set",
+    response_model=QuestionSetPoolGenerationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def generate_question_set_pool_endpoint(
+    request: QuestionSetPoolGenerationRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("assessment_manager")
+    ),
+):
+    """
+    Build the question pool required for every variant of a Question Set.
+
+    Existing approved questions are preferred from the current year, then
+    historical years and legacy unbanked records. AI fills only the remaining
+    gap and newly generated questions remain pending review.
+    """
+
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    question_set = db.get(
+        QuestionSet,
+        request.question_set_id,
+    )
+
+    if question_set is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question set not found",
+        )
+
+    access = (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == question_set.job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You are not allowed to generate questions for this question set."
+            ),
+        )
+
+    try:
+        return generate_question_set_pool(
+            db=db,
+            question_set_id=request.question_set_id,
+            created_by=current_user["user_id"],
+        )
+
+    except LLMServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Question generation service is currently unavailable.",
+        ) from exc
+
+    except QuestionSetPoolServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(
@@ -254,6 +366,231 @@ def add_question_to_section_endpoint(
         ) from exc
 
 
+
+
+@router.get(
+    "/sections/{section_id}/assigned",
+    response_model=list[QuestionResponse],
+)
+def get_assigned_section_questions_endpoint(
+    section_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("assessment_manager")
+    ),
+):
+    """Return questions already assigned to an assessment section."""
+
+    user = db.get(User, current_user["user_id"])
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    section = db.get(Section, section_id)
+
+    if section is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Section not found.",
+        )
+
+    question_set = db.get(QuestionSet, section.question_set_id)
+
+    if question_set is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question set not found.",
+        )
+
+    access = (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == question_set.job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to view questions for this section.",
+        )
+
+    return (
+        db.query(Question)
+        .join(
+            QuestionSection,
+            QuestionSection.question_id == Question.id,
+        )
+        .filter(
+            QuestionSection.section_id == section_id,
+        )
+        .order_by(
+            QuestionSection.display_order.asc(),
+            Question.id.asc(),
+        )
+        .all()
+    )
+
+
+@router.get(
+    "/sections/{section_id}/available",
+    response_model=list[QuestionResponse],
+)
+def get_available_section_questions_endpoint(
+    section_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("assessment_manager")
+    ),
+):
+    """
+    Return approved reusable questions for a section.
+
+    Questions can come from the current or previous hiring-year banks for
+    the same job, or from legacy unbanked records. They are filtered by the
+    section's configured skills, configured difficulty buckets, semantic
+    section type, and current assignment state.
+    """
+
+    user = db.get(User, current_user["user_id"])
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    section = db.get(Section, section_id)
+
+    if section is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Section not found.",
+        )
+
+    question_set = db.get(QuestionSet, section.question_set_id)
+
+    if question_set is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question set not found.",
+        )
+
+    access = (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == question_set.job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if access is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to view questions for this section.",
+        )
+
+    configured_skill_ids = [
+        row[0]
+        for row in (
+            db.query(SectionSkill.skill_id)
+            .filter(SectionSkill.section_id == section_id)
+            .all()
+        )
+    ]
+
+    if not configured_skill_ids:
+        return []
+
+    requested_difficulties: set[str] = set()
+    for section_skill in (
+        db.query(SectionSkill)
+        .filter(SectionSkill.section_id == section_id)
+        .all()
+    ):
+        counts = {
+            "easy": int(getattr(section_skill, "easy_count", 0) or 0),
+            "medium": int(getattr(section_skill, "medium_count", 0) or 0),
+            "hard": int(getattr(section_skill, "hard_count", 0) or 0),
+        }
+
+        if any(value > 0 for value in counts.values()):
+            requested_difficulties.update(
+                difficulty
+                for difficulty, value in counts.items()
+                if value > 0
+            )
+            continue
+
+        legacy_count = int(
+            getattr(section_skill, "question_count", 0) or 0
+        )
+        legacy_difficulty = str(
+            getattr(section, "difficulty", "") or ""
+        ).strip().lower()
+
+        if legacy_count > 0 and legacy_difficulty in {
+            "easy",
+            "medium",
+            "hard",
+        }:
+            requested_difficulties.add(legacy_difficulty)
+
+    if not requested_difficulties:
+        requested_difficulties = {"easy", "medium", "hard"}
+
+    section_type = str(
+        getattr(section, "section_type", "conceptual") or "conceptual"
+    ).strip().lower()
+
+    already_assigned = (
+        db.query(QuestionSection.question_id)
+        .filter(QuestionSection.section_id == section_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(Question)
+        .outerjoin(
+            QuestionBank,
+            Question.question_bank_id == QuestionBank.id,
+        )
+        .filter(
+            Question.status == "approved",
+            Question.skill_id.in_(configured_skill_ids),
+            Question.difficulty.in_(sorted(requested_difficulties)),
+            ~Question.id.in_(already_assigned),
+            or_(
+                Question.section_type == section_type,
+                (
+                    Question.section_type.is_(None)
+                    if section_type == "conceptual"
+                    else Question.section_type == section_type
+                ),
+            ),
+            or_(
+                Question.question_bank_id.is_(None),
+                QuestionBank.job_id == question_set.job_id,
+            ),
+        )
+    )
+
+    return (
+        query
+        .order_by(
+            QuestionBank.hiring_year.desc().nullslast(),
+            Question.id.desc(),
+        )
+        .all()
+    )
+
+
 @router.get(
     "",
     response_model=list[QuestionResponse],
@@ -261,7 +598,13 @@ def add_question_to_section_endpoint(
 def get_questions_endpoint(
     skill_id: int | None = None,
     question_type: str | None = None,
+    section_type: str | None = None,
     difficulty: str | None = None,
+    question_bank_id: int | None = Query(
+        default=None,
+        gt=0,
+    ),
+    library_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: dict = Depends(
         require_any_role(
@@ -286,7 +629,10 @@ def get_questions_endpoint(
             db=db,
             skill_id=skill_id,
             question_type=question_type,
+            section_type=section_type,
             difficulty=difficulty,
+            question_bank_id=question_bank_id,
+            library_only=library_only,
         )
 
     except QuestionServiceError as exc:
@@ -325,7 +671,7 @@ def semantic_search_questions_endpoint(
     """
     Retrieve semantically relevant approved questions.
 
-    PostgreSQL remains the source of truth. FAISS is rebuilt from the
+    PostgreSQL remains the source of truth. FAISS isrebuilt from the
     currently approved question set before each search so newly approved or
     rejected content is reflected immediately in this MVP implementation.
     """
@@ -455,6 +801,7 @@ def update_question_endpoint(
             question_id=question_id,
             question_text=question.question_text,
             question_type=question.question_type,
+            section_type=question.section_type,
             skill_id=question.skill_id,
             difficulty=question.difficulty,
             options=question.options,

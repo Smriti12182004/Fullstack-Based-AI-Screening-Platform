@@ -1,0 +1,22 @@
+
+# Secrets and environment-specific configuration
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.py[cod]
+
+# Git metadata
+.git/
+
+# Temporary backups; original files remain untouched
+*.before-deploy-*
+*.bak*
+*.failed-integration

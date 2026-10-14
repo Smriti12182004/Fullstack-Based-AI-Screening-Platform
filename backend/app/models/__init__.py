@@ -1,39 +1,58 @@
 from app.models.assessment import Assessment
 from app.models.assessment_question import AssessmentQuestion
+from app.models.assessment_set import AssessmentSet
+from app.models.assessment_assignment import AssessmentAssignment
+from app.models.assessment_invitation import AssessmentInvitation
 from app.models.attempt import Attempt
 from app.models.audit_event import AuditEvent
 from app.models.job import Job
 from app.models.job_assessment_access import JobAssessmentAccess
 from app.models.job_skill import JobSkill
 from app.models.job_skill_review import JobSkillReview
+from app.models.notification import Notification
 from app.models.question import Question
+from app.models.question_idea import QuestionIdea
+from app.models.question_bank import QuestionBank
+from app.models.question_generation_attempt import QuestionGenerationAttempt
 from app.models.question_section import QuestionSection
 from app.models.question_set import QuestionSet
 from app.models.question_set_configuration import QuestionSetConfiguration
+from app.models.question_slot import QuestionSlot
 from app.models.question_version import QuestionVersion
 from app.models.response import Response
 from app.models.result import Result
 from app.models.section import Section
+from app.models.section_skill import SectionSkill
 from app.models.skill import Skill
 from app.models.user import User
+
 
 __all__ = [
     "Assessment",
     "AssessmentQuestion",
+    "AssessmentSet",
+    "AssessmentAssignment",
+    "AssessmentInvitation",
     "Attempt",
     "AuditEvent",
     "Job",
     "JobAssessmentAccess",
     "JobSkill",
     "JobSkillReview",
+    "Notification",
     "Question",
+    "QuestionIdea",
+    "QuestionBank",
+    "QuestionGenerationAttempt",
     "QuestionSection",
     "QuestionSet",
     "QuestionSetConfiguration",
+    "QuestionSlot",
     "QuestionVersion",
     "Response",
     "Result",
     "Section",
+    "SectionSkill",
     "Skill",
     "User",
 ]

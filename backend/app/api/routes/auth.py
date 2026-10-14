@@ -1,11 +1,22 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
+
+import hashlib
 
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
+from io import BytesIO
+from pathlib import Path
+from fastapi import File, UploadFile
+from fastapi.responses import FileResponse
+from PIL import Image, ImageOps
+from html import escape
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.dependencies import get_current_user
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -16,9 +27,11 @@ from app.db.timestamps import utc_now
 from app.models import User
 from app.schemas.auth import (
     LoginRequest,
+    ProfileUpdateRequest,
     RegisterRequest,
     ResendVerificationRequest,
     VerifyEmailRequest,
+    CandidateInvitationActivationRequest,
 )
 from app.services.email_service import (
     EmailServiceError,
@@ -30,6 +43,19 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
+
+
+# PROFILE_PHOTO_BEGIN
+# Store resized images outside the source tree, keyed by authenticated user ID.
+PROFILE_PHOTO_DIR = (
+    Path(__file__).resolve().parents[3] / "uploads" / "profile_photos"
+)
+MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024
+
+
+def _profile_photo_path(user_id: int) -> Path:
+    return PROFILE_PHOTO_DIR / f"{user_id}.webp"
+# PROFILE_PHOTO_END
 
 
 @router.post(
@@ -326,6 +352,119 @@ def resend_verification_otp(
     }
 
 
+@router.get(
+    "/activate-candidate-invitation-page",
+    response_class=HTMLResponse,
+)
+def candidate_invitation_activation_page():
+    """Render password setup; a one-time token is passed in the URL fragment, not the request."""
+    frontend_login = escape(
+        f"{settings.frontend_base_url.rstrip('/')}/login",
+        quote=True,
+    )
+
+    html = f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Activate your Evalyn account</title>
+<style>body{{margin:0;padding:24px;background:#f7f8fc;font-family:Arial,Helvetica,sans-serif;color:#26284f}}main{{max-width:520px;margin:7vh auto;background:#fff;border:1px solid #e1e4eb;border-radius:22px;padding:32px;box-shadow:0 18px 50px rgba(38,40,79,.08)}}label{{display:block;font-weight:700;font-size:13px;margin:16px 0 7px}}input{{width:100%;box-sizing:border-box;border:1px solid #dce0e8;border-radius:10px;padding:12px;font-size:15px}}button{{width:100%;margin-top:22px;border:0;border-radius:10px;padding:13px;background:#5658e8;color:#fff;font-weight:700;font-size:15px;cursor:pointer}}button:disabled{{opacity:.6;cursor:not-allowed}}.muted{{color:#667085;font-size:14px;line-height:1.6}}#status{{margin-top:16px;font-size:14px;line-height:1.6}}a{{color:#5658e8;font-weight:700}}</style></head>
+<body><main><div style="font-size:11px;letter-spacing:.14em;font-weight:700;color:#5658e8">EVALYN · CANDIDATE ACCOUNT</div><h1 style="margin-bottom:8px">Set your password</h1><p class="muted">Choose a password to activate your candidate account and verify this email address.</p>
+<form id="activation-form"><label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><label for="confirm-password">Confirm password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button id="submit-button" type="submit">Activate account</button></form><p id="status" role="status" class="muted"></p><p id="login-row" style="display:none"><a href="{frontend_login}">Continue to Evalyn login</a></p></main>
+<script>const form=document.getElementById('activation-form');const statusNode=document.getElementById('status');const submitButton=document.getElementById('submit-button');const token=new URLSearchParams(window.location.hash.slice(1)).get('token')||'';if(token){{window.history.replaceState(null,'',window.location.pathname);}}else{{statusNode.textContent='This setup link is missing its token. Open the complete link from your invitation email.';submitButton.disabled=true;}}form.addEventListener('submit',async(event)=>{{event.preventDefault();statusNode.textContent='';const password=document.getElementById('password').value;const confirmPassword=document.getElementById('confirm-password').value;if(password!==confirmPassword){{statusNode.textContent='The passwords do not match.';return;}}if(!token){{statusNode.textContent='This setup link is invalid. Ask HR to send a new invitation.';return;}}submitButton.disabled=true;submitButton.textContent='Activating…';try{{const response=await fetch(window.location.origin+'/auth/activate-candidate-invitation',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token,password}})}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'Unable to activate the account.');form.style.display='none';statusNode.textContent='Your account is active and your email is verified. You can now sign in to Evalyn.';document.getElementById('login-row').style.display='block';}}catch(error){{statusNode.textContent=error.message||'Unable to activate the account.';submitButton.disabled=false;submitButton.textContent='Activate account';}}}});</script></body></html>'''
+
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/activate-candidate-invitation")
+def activate_candidate_invitation(
+    credentials: CandidateInvitationActivationRequest,
+    db: Session = Depends(get_db),
+):
+    """Consume a single-use HR invitation, set the candidate password, verify email."""
+    token_hash = hashlib.sha256(
+        credentials.token.encode("utf-8")
+    ).hexdigest()
+
+    candidate = (
+        db.query(User)
+        .filter(User.invitation_token_hash == token_hash)
+        .with_for_update()
+        .one_or_none()
+    )
+
+    if (
+        candidate is None
+        or candidate.role != "candidate"
+        or candidate.is_email_verified
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This candidate activation link is invalid "
+                "or has already been used."
+            ),
+        )
+
+    expires_at = candidate.invitation_token_expires_at
+    now = utc_now()
+
+    if (
+        expires_at is not None
+        and (
+            expires_at.tzinfo is None
+            or expires_at.utcoffset() is None
+        )
+    ):
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if (
+        expires_at is None
+        or expires_at.astimezone(timezone.utc)
+        <= now.astimezone(timezone.utc)
+    ):
+        candidate.invitation_token_hash = None
+        candidate.invitation_token_expires_at = None
+        candidate.invitation_token_sent_at = None
+        db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "This candidate activation link has expired. "
+                "Ask HR to send a new invitation."
+            ),
+        )
+
+    candidate.password_hash = hash_password(credentials.password)
+    candidate.is_email_verified = True
+    candidate.invitation_token_hash = None
+    candidate.invitation_token_expires_at = None
+    candidate.invitation_token_sent_at = None
+    candidate.verification_otp_hash = None
+    candidate.verification_otp_expires_at = None
+    candidate.verification_otp_sent_at = None
+    candidate.verification_otp_attempts = 0
+
+    db.commit()
+    db.refresh(candidate)
+
+    return {
+        "message": (
+            "Candidate account activated and email verified successfully."
+        ),
+        "user_id": candidate.id,
+        "username": candidate.username,
+        "full_name": candidate.full_name,
+        "email": candidate.email,
+        "role": candidate.role,
+    }
+
+
 @router.post("/login")
 def login(
     credentials: LoginRequest,
@@ -364,8 +503,188 @@ def login(
         "token_type": "bearer",
         "user_id": user.id,
         "username": user.username,
+        "full_name": user.full_name,
+        "email": user.email,
         "role": user.role,
     }
+
+
+def _profile_response(user: User) -> dict:
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "full_name": user.full_name,
+        "email": user.email,
+        "role": user.role,
+        "has_profile_photo": _profile_photo_path(user.id).is_file(),
+    }
+
+
+@router.get("/me")
+def get_my_profile(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user = db.get(User, current_user["user_id"])
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    return _profile_response(user)
+
+
+@router.patch("/me")
+def update_my_profile(
+    payload: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user = db.get(User, current_user["user_id"])
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    changes = {
+        key: value
+        for key, value in payload.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
+    if not changes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide a name or username to update.",
+        )
+
+    if "full_name" in changes:
+        clean_name = " ".join(changes["full_name"].split())
+        if len(clean_name) < 2 or len(clean_name) > 100:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Full name must contain 2 to 100 characters.",
+            )
+        user.full_name = clean_name
+
+    if "username" in changes:
+        clean_username = changes["username"].strip()
+        existing_username = (
+            db.query(User.id)
+            .filter(
+                User.username == clean_username,
+                User.id != user.id,
+            )
+            .first()
+        )
+        if existing_username is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username is already taken.",
+            )
+        user.username = clean_username
+
+    # Email and role are deliberately not writable through this endpoint.
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Profile changes conflict with an existing account.",
+        ) from exc
+
+    return _profile_response(user)
+
+
+
+@router.get("/me/avatar")
+def get_my_profile_avatar(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return only the signed-in user's profile photo."""
+    photo_path = _profile_photo_path(current_user["user_id"])
+    if not photo_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No profile photo has been uploaded.",
+        )
+
+    return FileResponse(
+        photo_path,
+        media_type="image/webp",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post("/me/avatar")
+async def upload_my_profile_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Validate, resize, and save the signed-in user's profile photo."""
+    content = await file.read(MAX_PROFILE_PHOTO_BYTES + 1)
+    await file.close()
+
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose an image to upload.",
+        )
+
+    if len(content) > MAX_PROFILE_PHOTO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Profile photos must be 5 MB or smaller.",
+        )
+
+    try:
+        from io import BytesIO
+
+        with Image.open(BytesIO(content)) as original:
+            original.load()
+            normalized = ImageOps.exif_transpose(original).convert("RGB")
+            normalized.thumbnail((512, 512))
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected file is not a supported image.",
+        ) from exc
+
+    photo_path = _profile_photo_path(current_user["user_id"])
+    temporary_path = photo_path.with_name(
+        f"{photo_path.stem}.uploading.webp"
+    )
+
+    try:
+        PROFILE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+        normalized.save(
+            temporary_path,
+            format="WEBP",
+            quality=88,
+            method=6,
+        )
+        temporary_path.replace(photo_path)
+    except OSError as exc:
+        temporary_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the profile photo.",
+        ) from exc
+
+    return {"has_profile_photo": True}
+
+
+@router.delete("/me/avatar")
+def delete_my_profile_avatar(
+    current_user: dict = Depends(get_current_user),
+):
+    """Remove only the signed-in user's profile photo."""
+    photo_path = _profile_photo_path(current_user["user_id"])
+    photo_path.unlink(missing_ok=True)
+    return {"has_profile_photo": False}
 
 
 @router.post("/logout")

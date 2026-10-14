@@ -13,6 +13,8 @@ import {
   Sparkles,
   Trash2,
   X,
+  Users,
+  Send,
 } from "lucide-react";
 
 import api from "../services/api";
@@ -83,6 +85,12 @@ function SkillReview() {
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+
+  const [managers, setManagers] = useState([]);
+  const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [loadingManagers, setLoadingManagers] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareStatus, setShareStatus] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -516,6 +524,104 @@ function SkillReview() {
       );
     } finally {
       setConfirming(false);
+    }
+  };
+
+  const loadAssessmentManagers = async () => {
+    setLoadingManagers(true);
+
+    try {
+      const response = await api.get("/jobs/assessment-managers");
+
+      const availableManagers = Array.isArray(response.data)
+        ? response.data
+        : [];
+
+      setManagers(availableManagers);
+
+      if (availableManagers.length > 0 && !selectedManagerId) {
+        setSelectedManagerId(String(availableManagers[0].id));
+      }
+    } catch (err) {
+      console.error("Failed to load assessment managers:", err);
+
+      if (isAuthError(err)) {
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      setError(
+        getErrorMessage(
+          err,
+          "Unable to load available Assessment Managers."
+        )
+      );
+    } finally {
+      setLoadingManagers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (status === "confirmed") {
+      loadAssessmentManagers();
+    }
+  }, [status, jobId]);
+
+  const handleShareWithManager = async () => {
+    if (status !== "confirmed") {
+      setError("Confirm the skills before sharing this job.");
+      setSuccess("");
+      return;
+    }
+
+    if (!selectedManagerId) {
+      setError("Select an Assessment Manager first.");
+      setSuccess("");
+      return;
+    }
+
+    setSharing(true);
+    setError("");
+    setSuccess("");
+    setShareStatus("");
+
+    try {
+      const response = await api.post(
+        `/jobs/${jobId}/share`,
+        {
+          manager_user_id: Number(selectedManagerId),
+        }
+      );
+
+      const result = response.data || {};
+      const alreadyShared = result.status === "already_shared";
+      const managerName = result.manager_username ||
+        managers.find((manager) => String(manager.id) === String(selectedManagerId))?.username ||
+        "Assessment Manager";
+
+      setShareStatus(result.status || "shared");
+
+      setSuccess(
+        alreadyShared
+          ? `${managerName} already has access to this job.`
+          : `Job shared successfully with ${managerName}.`
+      );
+    } catch (err) {
+      console.error("Failed to share job with Assessment Manager:", err);
+
+      if (isAuthError(err)) {
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      setError(
+        getErrorMessage(
+          err,
+          "Unable to share this job with the Assessment Manager."
+        )
+      );
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -1070,7 +1176,119 @@ function SkillReview() {
                   </button>
                 </div>
               </div>
-            </section>
+
+              {/* =================================================
+                  SHARE WITH ASSESSMENT MANAGER
+              ================================================= */}
+              {isConfirmed && (
+                <div className="border-t border-[#E8EFEC] bg-white px-4 py-6 sm:px-6 lg:px-7">
+                  <div className="rounded-2xl border border-[#D9DDF5] bg-[#FAFAFF] p-4 sm:p-5">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EAE5F9] text-[#5D5FE8]">
+                          <Users size={18} />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#5658E8]">
+                            Next stage
+                          </p>
+
+                          <h3 className="mt-1 text-base font-semibold text-[#202938]">
+                            Send this job to Assessment Manager
+                          </h3>
+
+                          <p className="mt-1.5 max-w-2xl text-xs leading-5 text-[#667085]">
+                            The job and confirmed skills will become available in the selected manager&apos;s assessment workspace.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="w-full lg:max-w-[420px]">
+                        <label
+                          htmlFor="assessment-manager"
+                          className="mb-2 block text-[10px] font-bold uppercase tracking-[0.13em] text-[#7B8794]"
+                        >
+                          Assessment Manager
+                        </label>
+
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <select
+                            id="assessment-manager"
+                            value={selectedManagerId}
+                            onChange={(event) => {
+                              setSelectedManagerId(event.target.value);
+                              setShareStatus("");
+                            }}
+                            disabled={
+                              loadingManagers ||
+                              sharing ||
+                              managers.length === 0
+                            }
+                            className="h-10 min-w-0 flex-1 rounded-lg border border-[#CDD3E0] bg-white px-3 text-xs font-medium text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {loadingManagers ? (
+                              <option value="">
+                                Loading managers...
+                              </option>
+                            ) : managers.length === 0 ? (
+                              <option value="">
+                                No Assessment Managers available
+                              </option>
+                            ) : (
+                              managers.map((manager) => (
+                                <option
+                                  key={manager.id}
+                                  value={manager.id}
+                                >
+                                  {manager.username} — {manager.email}
+                                </option>
+                              ))
+                            )}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={handleShareWithManager}
+                            disabled={
+                              loadingManagers ||
+                              sharing ||
+                              !selectedManagerId ||
+                              managers.length === 0
+                            }
+                            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#5658E8] px-4 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(86,88,232,0.16)] transition hover:-translate-y-0.5 hover:bg-[#494BD8] focus:outline-none focus:ring-4 focus:ring-[#5658E8]/15 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {sharing ? (
+                              <>
+                                <RefreshCw
+                                  size={14}
+                                  className="animate-spin"
+                                />
+                                Sending...
+                              </>
+                            ) : shareStatus === "shared" ? (
+                              <>
+                                <CheckCircle2 size={14} />
+                                Shared
+                              </>
+                            ) : (
+                              <>
+                                <Send size={14} />
+                                Send Job
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        <p className="mt-2 text-[10px] leading-4 text-[#98A2B3]">
+                          Only confirmed skills can be handed off for assessment preparation.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                )}
+              </section>
           </div>
         )}
       </div>

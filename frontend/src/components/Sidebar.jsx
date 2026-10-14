@@ -1,15 +1,16 @@
 import { NavLink } from "react-router-dom";
 
 import {
+  Archive,
   BriefcaseBusiness,
   CircleHelp,
   ClipboardCheck,
+  ClipboardList,
   FileQuestion,
   LayoutDashboard,
   Settings,
   ShieldCheck,
   Sparkles,
-  UserCog,
   WandSparkles,
 } from "lucide-react";
 
@@ -18,28 +19,23 @@ import evalynLetter from "../assets/evalyn-letter.png";
 
 import { useAuth } from "../context/AuthContext";
 
-
 const ROLE_LABELS = {
   organization_admin: "Organization Administrator",
-  recruiter: "Recruiter",
+  recruiter: "HR",
   assessment_manager: "Assessment Manager",
   assessment_reviewer: "Assessment Reviewer",
   candidate: "Candidate",
 };
 
-
 function Sidebar() {
   const { auth } = useAuth();
-
   const role = auth?.role || "";
 
   const roleLabel =
     ROLE_LABELS[role] ||
     role
       .replace(/_/g, " ")
-      .replace(/\b\w/g, (character) =>
-        character.toUpperCase()
-      ) ||
+      .replace(/\b\w/g, (character) => character.toUpperCase()) ||
     "Workspace";
 
   const navItemsByRole = {
@@ -56,18 +52,72 @@ function Sidebar() {
         icon: BriefcaseBusiness,
         accent: "screen",
       },
+      {
+        name: "Assessment Sets",
+        path: "/question-banks",
+        icon: Archive,
+        accent: "prepare",
+      },
+      {
+        name: "Assessments",
+        path: "/assessments",
+        icon: ClipboardList,
+        accent: "review",
+      },
+      {
+        name: "Proctoring & Activity",
+        path: "/proctoring/activity",
+        icon: ShieldCheck,
+        accent: "content",
+      },
     ],
 
     assessment_manager: [
       {
-        name: "Question Bank",
+        name: "Dashboard",
+        path: "/manager/dashboard",
+        icon: LayoutDashboard,
+        accent: "role",
+      },
+      {
+        name: "Assigned Jobs",
+        path: "/manager/jobs",
+        icon: BriefcaseBusiness,
+        accent: "screen",
+      },
+      {
+        name: "Assessment Sets",
+        path: "/question-banks",
+        icon: Archive,
+        accent: "prepare",
+      },
+      {
+        name: "Question Library",
         path: "/questions",
         icon: FileQuestion,
-        accent: "prepare",
+        accent: "content",
+      },
+      {
+        name: "Proctoring & Activity",
+        path: "/proctoring/activity",
+        icon: ShieldCheck,
+        accent: "review",
       },
     ],
 
     assessment_reviewer: [
+      {
+        name: "Dashboard",
+        path: "/reviewer/dashboard",
+        icon: LayoutDashboard,
+        accent: "role",
+      },
+      {
+        name: "Assessment Sets",
+        path: "/question-banks",
+        icon: Archive,
+        accent: "prepare",
+      },
       {
         name: "Assessment Review",
         path: "/review",
@@ -91,27 +141,35 @@ function Sidebar() {
     },
 
     screen: {
-      icon: "bg-[#EAE5F9] text-[#7862C8]",
+      icon: "bg-[#EAE5F9] text-[#5F55A8]",
       activeIcon:
-        "bg-gradient-to-br from-[#EAE5F9] to-[#F0ECFC] text-[#7862C8]",
+        "bg-gradient-to-br from-[#EAE5F9] to-[#F0ECFC] text-[#5F55A8]",
       glow: "bg-[#D4C6F8]",
-      dot: "bg-[#7862C8]",
+      dot: "bg-[#5F55A8]",
     },
 
     prepare: {
-      icon: "bg-[#F3E3F2] text-[#AA5E9C]",
+      icon: "bg-[#F3E3F2] text-[#9C568E]",
       activeIcon:
-        "bg-gradient-to-br from-[#F3E3F2] to-[#F8EAF5] text-[#AA5E9C]",
+        "bg-gradient-to-br from-[#F3E3F2] to-[#F8EAF5] text-[#9C568E]",
       glow: "bg-[#EDBFE5]",
-      dot: "bg-[#AA5E9C]",
+      dot: "bg-[#9C568E]",
+    },
+
+    content: {
+      icon: "bg-[#EAE5F9] text-[#5F55A8]",
+      activeIcon:
+        "bg-gradient-to-br from-[#EAE5F9] to-[#F3E3F2] text-[#5F55A8]",
+      glow: "bg-[#D4C6F8]",
+      dot: "bg-[#5F55A8]",
     },
 
     review: {
-      icon: "bg-[#FAEDEA] text-[#A76D5B]",
+      icon: "bg-[#FAEDEA] text-[#9C634F]",
       activeIcon:
-        "bg-gradient-to-br from-[#FAEDEA] to-[#FDF3F0] text-[#A76D5B]",
+        "bg-gradient-to-br from-[#FAEDEA] to-[#FDF3F0] text-[#9C634F]",
       glow: "bg-[#FFD8C7]",
-      dot: "bg-[#A76D5B]",
+      dot: "bg-[#9C634F]",
     },
   };
 
@@ -119,18 +177,15 @@ function Sidebar() {
     <aside
       className="
         group sticky top-0 flex h-screen w-[78px] shrink-0 flex-col
-        overflow-hidden border-r border-[#3B3D63]
-        bg-gradient-to-b from-[#26284F] via-[#292B55] to-[#222447]
+        overflow-hidden border-r border-[#303252]
+        bg-gradient-to-b from-[#1C1D36] via-[#202143] to-[#181A31]
         text-white
         shadow-[6px_0_30px_rgba(38,40,79,0.08)]
         transition-[width] duration-300 ease-in-out
         hover:w-[250px]
       "
     >
-      {/* =====================================================
-          DECORATIVE BACKGROUND
-      ===================================================== */}
-
+      {/* DECORATIVE BACKGROUND */}
       <div
         className="
           pointer-events-none absolute -right-16 -top-16
@@ -155,21 +210,16 @@ function Sidebar() {
         "
       />
 
-      {/* =====================================================
-          BRAND
-      ===================================================== */}
-
+      {/* BRAND */}
       <div
         className="
           relative flex h-16 w-full shrink-0
           items-center justify-center
           overflow-hidden
-          border-b border-[#3B3D63]
-          bg-[#26284F]
+          border-b border-[#303252]
+          bg-[#1C1D36]
         "
       >
-        {/* Collapsed brand */}
-
         <img
           src={evalynLetter}
           alt="Evalyn"
@@ -182,8 +232,6 @@ function Sidebar() {
             group-hover:opacity-0
           "
         />
-
-        {/* Expanded brand */}
 
         <img
           src={evalynLogo}
@@ -202,13 +250,10 @@ function Sidebar() {
         />
       </div>
 
-      {/* =====================================================
-          NAVIGATION
-      ===================================================== */}
-
+      {/* NAVIGATION */}
       <nav
         className="
-          relative flex-1 px-2 py-6
+          relative flex-1 overflow-y-auto px-2 py-6
           transition-all duration-300
           group-hover:px-4
         "
@@ -216,7 +261,7 @@ function Sidebar() {
         <p
           className="
             mb-3 overflow-hidden whitespace-nowrap
-            px-3 text-[9px] font-bold uppercase
+            px-3 text-[11.5px] font-bold uppercase
             tracking-[0.2em] text-[#B9BCE0]
             opacity-0 transition-opacity duration-200
             group-hover:opacity-100
@@ -236,53 +281,43 @@ function Sidebar() {
                   key={item.path}
                   to={item.path}
                   title={item.name}
-                  className={({ isActive }) =>
-                    `
-                      group/item relative flex items-center rounded-xl
-                      py-3 text-sm font-medium
-                      transition-all duration-200
-
-                      ${
-                        isActive
-                          ? "bg-white text-[#26284F] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
-                          : "text-[#D7D9E8] hover:bg-white/[0.08] hover:text-white"
-                      }
-
-                      ${
-                        isActive
-                          ? "justify-start px-3.5"
-                          : "justify-center px-2 group-hover:justify-start group-hover:px-3.5"
-                      }
-                    `
-                  }
+                  className={({ isActive }) => `
+                    group/item relative flex items-center rounded-xl
+                    py-3.5 text-[15px] font-medium
+                    transition-all duration-200
+                    ${
+                      isActive
+                        ? "bg-white text-[#17182E] shadow-[0_10px_24px_rgba(0,0,0,0.16)]"
+                        : "text-[#D7D9E8] hover:bg-white/[0.08] hover:text-white"
+                    }
+                    ${
+                      isActive
+                        ? "justify-start px-3.5"
+                        : "justify-center px-2 group-hover:justify-start group-hover:px-3.5"
+                    }
+                  `}
                 >
                   {({ isActive }) => (
                     <>
-                      {/* Active indicator */}
-
                       {isActive && (
                         <span
                           className="
                             absolute left-0 top-1/2 h-8 w-1
                             -translate-y-1/2 rounded-r-full
                             bg-gradient-to-b
-                            from-[#5658E8]
-                            via-[#7862C8]
-                            to-[#AA5E9C]
+                            from-[#4F50B8]
+                            via-[#5F55A8]
+                            to-[#9C568E]
                           "
                         />
                       )}
 
-                      {/* Icon */}
-
                       <span
                         className={`
-                          relative flex h-9 w-9 shrink-0
+                          relative flex h-10 w-10 shrink-0
                           items-center justify-center rounded-xl
                           transition-all duration-200
-
                           ${isActive ? style.activeIcon : style.icon}
-
                           group-hover/item:scale-105
                         `}
                       >
@@ -303,20 +338,16 @@ function Sidebar() {
                         />
                       </span>
 
-                      {/* Label */}
-
                       <span
                         className="
                           ml-3 overflow-hidden whitespace-nowrap
-                          text-[13px] font-semibold
+                          text-[14px] font-semibold
                           opacity-0 transition-all duration-200
                           group-hover:opacity-100
                         "
                       >
                         {item.name}
                       </span>
-
-                      {/* Active dot */}
 
                       {isActive && (
                         <span
@@ -339,9 +370,9 @@ function Sidebar() {
         ) : (
           <div
             className="
-              hidden rounded-xl border border-[#484B78]
+              hidden rounded-xl border border-[#3B3D63]
               bg-white/[0.05] px-3 py-3
-              text-[11px] leading-5 text-[#B9BCE0]
+              text-[13px] leading-6 text-[#B9BCE0]
               group-hover:block
             "
           >
@@ -349,18 +380,14 @@ function Sidebar() {
           </div>
         )}
 
-        {/* =================================================
-            AI WORKSPACE
-        ================================================= */}
-
+        {/* AI WORKSPACE */}
         {(role === "recruiter" ||
-          role === "assessment_manager" ||
           role === "assessment_reviewer") && (
           <div className="mt-9">
             <p
               className="
                 mb-3 overflow-hidden whitespace-nowrap
-                px-3 text-[9px] font-bold uppercase
+                px-3 text-[11.5px] font-bold uppercase
                 tracking-[0.2em] text-[#B9BCE0]
                 opacity-0 transition-opacity duration-200
                 group-hover:opacity-100
@@ -372,7 +399,7 @@ function Sidebar() {
             <div
               className="
                 relative overflow-hidden rounded-2xl
-                border border-[#484B78]
+                border border-[#3B3D63]
                 bg-white/[0.05]
                 backdrop-blur-sm
                 transition-all duration-300
@@ -396,11 +423,11 @@ function Sidebar() {
               >
                 <div
                   className="
-                    relative flex h-9 w-9 shrink-0
+                    relative flex h-10 w-10 shrink-0
                     items-center justify-center rounded-xl
                     bg-gradient-to-br
                     from-[#EAE5F9] to-[#F3E3F2]
-                    text-[#7862C8]
+                    text-[#5F55A8]
                     shadow-sm
                   "
                 >
@@ -411,7 +438,7 @@ function Sidebar() {
                       absolute -right-0.5 -top-0.5
                       h-2 w-2 rounded-full
                       bg-[#35A66D]
-                      ring-2 ring-[#26284F]
+                      ring-2 ring-[#1C1D36]
                     "
                   />
                 </div>
@@ -423,14 +450,14 @@ function Sidebar() {
                     group-hover:opacity-100
                   "
                 >
-                  <p className="text-xs font-bold text-white">
+                  <p className="text-[14px] font-bold text-white">
                     AI Pipeline
                   </p>
 
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#35A66D]" />
 
-                    <span className="text-[10px] font-medium text-[#C2C5E0]">
+                    <span className="text-[12px] font-medium text-[#C2C5E0]">
                       Systems ready
                     </span>
                   </div>
@@ -439,15 +466,13 @@ function Sidebar() {
 
               <div
                 className="
-                  hidden border-t border-[#3B3D63]
+                  hidden border-t border-[#303252]
                   px-4 pb-4 pt-3
                   group-hover:block
                 "
               >
                 <div className="space-y-2">
-
-                  {(role === "recruiter" ||
-                    role === "assessment_manager") && (
+                  {role === "recruiter" && (
                     <AIPipelineItem
                       icon={<BriefcaseBusiness size={12} />}
                       label="Skill extraction"
@@ -470,7 +495,6 @@ function Sidebar() {
                       color="review"
                     />
                   )}
-
                 </div>
               </div>
             </div>
@@ -478,13 +502,10 @@ function Sidebar() {
         )}
       </nav>
 
-      {/* =====================================================
-          BOTTOM ACTIONS
-      ===================================================== */}
-
+      {/* BOTTOM ACTIONS */}
       <div
         className="
-          relative border-t border-[#3B3D63]
+          relative border-t border-[#303252]
           px-2 py-4
           transition-all duration-300
           group-hover:px-4
@@ -502,13 +523,11 @@ function Sidebar() {
           />
         </div>
 
-        {/* Workspace status */}
-
         <div
           className="
             mt-4 hidden overflow-hidden rounded-2xl
-            border border-[#484B78]
-            bg-[#202244]
+            border border-[#3B3D63]
+            bg-[#191B33]
             px-3.5 py-3
             group-hover:block
           "
@@ -516,7 +535,7 @@ function Sidebar() {
           <div className="flex items-center justify-between">
             <p
               className="
-                text-[9px] font-bold uppercase
+                text-[11.5px] font-bold uppercase
                 tracking-[0.15em] text-[#A8ACD0]
               "
             >
@@ -526,8 +545,8 @@ function Sidebar() {
             <span
               className="
                 flex items-center gap-1.5 rounded-full
-                bg-[#303258] px-2 py-1
-                text-[8px] font-semibold text-[#B9E8D0]
+                bg-[#27294B] px-2 py-1
+                text-[11px] font-semibold text-[#B9E8D0]
               "
             >
               <span className="h-1.5 w-1.5 rounded-full bg-[#35A66D]" />
@@ -535,7 +554,7 @@ function Sidebar() {
             </span>
           </div>
 
-          <p className="mt-1.5 text-[11px] font-semibold text-white">
+          <p className="mt-1.5 text-[13px] font-semibold text-white">
             {roleLabel} Workspace
           </p>
         </div>
@@ -544,34 +563,23 @@ function Sidebar() {
   );
 }
 
-
-/* ============================================================
-   AI PIPELINE ITEM
-============================================================ */
-
-function AIPipelineItem({
-  icon,
-  label,
-  color,
-}) {
+function AIPipelineItem({ icon, label, color }) {
   const colors = {
     screen: {
-      icon: "bg-[#EAE5F9] text-[#7862C8]",
-      dot: "bg-[#7862C8]",
+      icon: "bg-[#EAE5F9] text-[#5F55A8]",
+      dot: "bg-[#5F55A8]",
     },
-
     prepare: {
-      icon: "bg-[#F3E3F2] text-[#AA5E9C]",
-      dot: "bg-[#AA5E9C]",
+      icon: "bg-[#F3E3F2] text-[#9C568E]",
+      dot: "bg-[#9C568E]",
     },
-
     review: {
-      icon: "bg-[#FAEDEA] text-[#A76D5B]",
-      dot: "bg-[#A76D5B]",
+      icon: "bg-[#FAEDEA] text-[#9C634F]",
+      dot: "bg-[#9C634F]",
     },
   };
 
-  const style = colors[color];
+  const style = colors[color] || colors.screen;
 
   return (
     <div
@@ -595,7 +603,7 @@ function AIPipelineItem({
       <span
         className="
           flex-1 truncate
-          text-[10px] font-medium
+          text-[12px] font-medium
           text-[#D2D3E4]
         "
       >
@@ -612,15 +620,7 @@ function AIPipelineItem({
   );
 }
 
-
-/* ============================================================
-   SIDEBAR ACTION
-============================================================ */
-
-function SidebarAction({
-  icon,
-  label,
-}) {
+function SidebarAction({ icon, label }) {
   return (
     <button
       type="button"
@@ -628,7 +628,7 @@ function SidebarAction({
       className="
         group/action flex w-full items-center
         justify-center rounded-xl py-2.5
-        text-sm text-[#D7D9E8]
+        text-[14px] text-[#D7D9E8]
         transition-all duration-200
         hover:bg-white/[0.08]
         hover:text-white
@@ -638,7 +638,7 @@ function SidebarAction({
     >
       <span
         className="
-          flex h-8 w-8 shrink-0
+          flex h-9 w-9 shrink-0
           items-center justify-center
           rounded-lg
           bg-white/[0.05]
@@ -654,7 +654,7 @@ function SidebarAction({
       <span
         className="
           ml-3 overflow-hidden whitespace-nowrap
-          text-xs font-medium
+          text-[13px] font-medium
           opacity-0 transition-opacity duration-200
           group-hover:opacity-100
         "
@@ -664,6 +664,5 @@ function SidebarAction({
     </button>
   );
 }
-
 
 export default Sidebar;
