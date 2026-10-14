@@ -2,7 +2,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models import Question, QuestionSection, Section
+from app.models import Question, QuestionSection, Section, SectionSkill
 
 
 class QuestionSectionServiceError(Exception):
@@ -21,10 +21,11 @@ def add_question_to_section(
     - Section must exist.
     - Question must exist.
     - Question must be approved.
-    - Question skill must match the section skill.
+    - Question skill must belong to the section's skill allocations.
+    - Question difficulty must match the section difficulty.
     - Section must not be locked.
     - The same question cannot be added twice to the same section.
-    - The section's easy/medium/hard limits cannot be exceeded.
+    - The selected skill cannot exceed its configured question count.
     """
 
     section = db.get(Section, section_id)
@@ -46,14 +47,33 @@ def add_question_to_section(
             "Only approved questions can be added to a section."
         )
 
-    if question.skill_id != section.skill_id:
+    if question.difficulty != section.difficulty:
         raise QuestionSectionServiceError(
-            "Question skill does not match the section skill."
+            "Question difficulty does not match the section difficulty."
         )
 
     if section.is_locked:
         raise QuestionSectionServiceError(
             "Cannot modify a locked section."
+        )
+
+    section_skill = (
+        db.query(SectionSkill)
+        .filter(
+            SectionSkill.section_id == section_id,
+            SectionSkill.skill_id == question.skill_id,
+        )
+        .first()
+    )
+
+    if section_skill is None:
+        raise QuestionSectionServiceError(
+            "Question skill is not allocated to this section."
+        )
+
+    if section_skill.question_count <= 0:
+        raise QuestionSectionServiceError(
+            "This skill has no questions allocated in the section."
         )
 
     existing = (
@@ -70,7 +90,7 @@ def add_question_to_section(
             "Question is already added to this section."
         )
 
-    current_difficulty_count = (
+    current_skill_count = (
         db.query(func.count(QuestionSection.id))
         .join(
             Question,
@@ -78,23 +98,16 @@ def add_question_to_section(
         )
         .filter(
             QuestionSection.section_id == section_id,
-            Question.difficulty == question.difficulty,
+            Question.skill_id == question.skill_id,
+            Question.difficulty == section.difficulty,
         )
         .scalar()
     )
 
-    difficulty_limits = {
-        "easy": section.easy_count,
-        "medium": section.medium_count,
-        "hard": section.hard_count,
-    }
-
-    difficulty_limit = difficulty_limits[question.difficulty]
-
-    if current_difficulty_count >= difficulty_limit:
+    if current_skill_count >= section_skill.question_count:
         raise QuestionSectionServiceError(
             f"The section already contains the maximum allowed "
-            f"number of {question.difficulty} questions."
+            f"number of {section.difficulty} questions for this skill."
         )
 
     max_display_order = (

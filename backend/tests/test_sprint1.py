@@ -15,6 +15,7 @@ can be overridden with environment variables.
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import os
+from uuid import uuid4
 
 import jwt
 from fastapi.testclient import TestClient
@@ -25,22 +26,54 @@ from app.core.config import settings
 from app.core.security import ALGORITHM, SECRET_KEY
 from app.db.session import SessionLocal, engine
 from app.main import app
-from app.models import Assessment, Attempt, Job, User
+from app.models import (
+    Assessment,
+    AssessmentQuestion,
+    Attempt,
+    Job,
+    Question,
+    Skill,
+    User,
+)
 
 
 client = TestClient(app)
 
-RECRUITER_EMAIL = os.getenv("TEST_RECRUITER_EMAIL", "recruiter@test.com")
-RECRUITER_PASSWORD = os.getenv("TEST_RECRUITER_PASSWORD", "recruiter")
+RECRUITER_EMAIL = os.getenv(
+    "TEST_RECRUITER_EMAIL",
+    "recruiter@test.com",
+)
 
-CANDIDATE_EMAIL = os.getenv("TEST_CANDIDATE_EMAIL", "candidate@test.com")
-CANDIDATE_PASSWORD = os.getenv("TEST_CANDIDATE_PASSWORD", "candidate")
+RECRUITER_PASSWORD = os.getenv(
+    "TEST_RECRUITER_PASSWORD",
+    "recruiter",
+)
 
-ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "admin@test.com")
-ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin")
+CANDIDATE_EMAIL = os.getenv(
+    "TEST_CANDIDATE_EMAIL",
+    "candidate@test.com",
+)
+
+CANDIDATE_PASSWORD = os.getenv(
+    "TEST_CANDIDATE_PASSWORD",
+    "candidate",
+)
+
+ADMIN_EMAIL = os.getenv(
+    "TEST_ADMIN_EMAIL",
+    "admin@test.com",
+)
+
+ADMIN_PASSWORD = os.getenv(
+    "TEST_ADMIN_PASSWORD",
+    "admin",
+)
 
 
-def login(email: str, password: str) -> str:
+def login(
+    email: str,
+    password: str,
+) -> str:
     """Authenticate a test user and return the bearer token."""
     response = client.post(
         "/auth/login",
@@ -51,6 +84,7 @@ def login(email: str, password: str) -> str:
     )
 
     assert response.status_code == 200
+
     return response.json()["access_token"]
 
 
@@ -64,14 +98,19 @@ def test_health_check():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+    }
 
 
 def test_openapi_documentation_available():
-    """OpenAPI documentation is exposed and uses the configured app name."""
+    """
+    OpenAPI documentation is exposed and uses the configured app name.
+    """
     response = client.get("/openapi.json")
 
     assert response.status_code == 200
+
     data = response.json()
 
     assert "openapi" in data
@@ -80,31 +119,49 @@ def test_openapi_documentation_available():
 
 def test_unknown_endpoint_returns_404():
     """Unknown routes return a standard 404 response."""
-    response = client.get("/this-endpoint-does-not-exist")
+    response = client.get(
+        "/this-endpoint-does-not-exist"
+    )
 
     assert response.status_code == 404
 
 
 def test_create_job_with_invalid_request_body_returns_422():
-    """Missing required job fields are rejected by request validation."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Missing required job fields are rejected by request validation.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"title": "Only Title Provided"},
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+        json={
+            "title": "Only Title Provided",
+        },
     )
 
     assert response.status_code == 422
 
 
 def test_get_job_with_invalid_id_returns_422():
-    """Non-integer path parameters are rejected by request validation."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Non-integer path parameters are rejected by request validation.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.get(
         "/jobs/not-an-integer",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 422
@@ -116,9 +173,14 @@ def test_get_job_with_invalid_id_returns_422():
 
 
 def test_core_database_tables_exist():
-    """All Sprint 1 core tables are present in PostgreSQL."""
+    """
+    All Sprint 1 core tables are present in PostgreSQL.
+    """
     inspector = inspect(engine)
-    tables = set(inspector.get_table_names())
+
+    tables = set(
+        inspector.get_table_names()
+    )
 
     expected_tables = {
         "users",
@@ -132,40 +194,62 @@ def test_core_database_tables_exist():
         "audit_events",
     }
 
-    assert expected_tables.issubset(tables)
+    assert expected_tables.issubset(
+        tables
+    )
 
 
 def test_admin_users_requires_authentication():
     """Admin endpoints reject unauthenticated requests."""
-    response = client.get("/admin/users")
+    response = client.get(
+        "/admin/users"
+    )
 
     assert response.status_code == 401
 
 
 def test_get_nonexistent_job():
     """Missing jobs return a clear 404 response."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.get(
         "/jobs/999999999",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Job not found"
+
+    assert response.json()["detail"] == (
+        "Job not found"
+    )
 
 
 def test_get_nonexistent_assessment_returns_404():
-    """Existing candidate authorization cannot hide a nonexistent assessment."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    Existing candidate authorization cannot hide a nonexistent assessment.
+    """
+    token = login(
+        CANDIDATE_EMAIL,
+        CANDIDATE_PASSWORD,
+    )
 
     response = client.get(
         "/assessments/999999999",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Assessment not found"
+
+    assert response.json()["detail"] == (
+        "Assessment not found"
+    )
 
 
 # ============================================================================
@@ -174,7 +258,9 @@ def test_get_nonexistent_assessment_returns_404():
 
 
 def test_login_with_invalid_credentials():
-    """Incorrect credentials return 401 without issuing a token."""
+    """
+    Incorrect credentials return 401 without issuing a token.
+    """
     response = client.post(
         "/auth/login",
         json={
@@ -184,11 +270,16 @@ def test_login_with_invalid_credentials():
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid email or password"
+
+    assert response.json()["detail"] == (
+        "Invalid email or password"
+    )
 
 
 def test_login_with_valid_recruiter_credentials():
-    """Recruiter login returns a valid bearer token and role metadata."""
+    """
+    Recruiter login returns a valid bearer token and role metadata.
+    """
     response = client.post(
         "/auth/login",
         json={
@@ -198,6 +289,7 @@ def test_login_with_valid_recruiter_credentials():
     )
 
     assert response.status_code == 200
+
     data = response.json()
 
     assert data["access_token"]
@@ -207,7 +299,9 @@ def test_login_with_valid_recruiter_credentials():
 
 
 def test_candidate_login():
-    """Candidate login returns the expected identity and role."""
+    """
+    Candidate login returns the expected identity and role.
+    """
     response = client.post(
         "/auth/login",
         json={
@@ -217,16 +311,19 @@ def test_candidate_login():
     )
 
     assert response.status_code == 200
+
     data = response.json()
 
     assert data["access_token"]
-    assert data["user_id"] == 2
+    assert isinstance(data["user_id"], int) and data["user_id"] > 0
     assert data["role"] == "candidate"
     assert data["token_type"] == "bearer"
 
 
 def test_admin_login():
-    """Admin login returns the expected identity and role."""
+    """
+    Admin login returns the expected identity and role.
+    """
     response = client.post(
         "/auth/login",
         json={
@@ -236,17 +333,22 @@ def test_admin_login():
     )
 
     assert response.status_code == 200
+
     data = response.json()
 
     assert data["access_token"]
-    assert data["user_id"] == 3
-    assert data["role"] == "organization_admin"
+    assert isinstance(data["user_id"], int) and data["user_id"] > 0
+    assert data["role"] == (
+        "organization_admin"
+    )
     assert data["token_type"] == "bearer"
 
 
 def test_missing_authorization_header_is_rejected():
     """Protected endpoints require an Authorization header."""
-    response = client.get("/admin/users")
+    response = client.get(
+        "/admin/users"
+    )
 
     assert response.status_code == 401
 
@@ -255,11 +357,17 @@ def test_invalid_bearer_token_is_rejected():
     """Malformed bearer tokens are rejected."""
     response = client.get(
         "/admin/users",
-        headers={"Authorization": "Bearer not-a-valid-token"},
+        headers={
+            "Authorization":
+                "Bearer not-a-valid-token",
+        },
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid or expired token"
+
+    assert response.json()["detail"] == (
+        "Invalid or expired token"
+    )
 
 
 def test_expired_jwt_is_rejected():
@@ -268,7 +376,10 @@ def test_expired_jwt_is_rejected():
         {
             "sub": "1",
             "role": "recruiter",
-            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+            "exp": (
+                datetime.now(timezone.utc)
+                - timedelta(minutes=1)
+            ),
         },
         SECRET_KEY,
         algorithm=ALGORITHM,
@@ -276,11 +387,17 @@ def test_expired_jwt_is_rejected():
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {expired_token}"},
+        headers={
+            "Authorization":
+                f"Bearer {expired_token}",
+        },
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Token has expired"
+
+    assert response.json()["detail"] == (
+        "Token has expired"
+    )
 
 
 def test_jwt_without_user_id_is_rejected():
@@ -288,7 +405,10 @@ def test_jwt_without_user_id_is_rejected():
     token = jwt.encode(
         {
             "role": "recruiter",
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "exp": (
+                datetime.now(timezone.utc)
+                + timedelta(minutes=5)
+            ),
         },
         SECRET_KEY,
         algorithm=ALGORITHM,
@@ -296,11 +416,17 @@ def test_jwt_without_user_id_is_rejected():
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid authentication token"
+
+    assert response.json()["detail"] == (
+        "Invalid authentication token"
+    )
 
 
 def test_jwt_without_role_is_rejected():
@@ -308,7 +434,10 @@ def test_jwt_without_role_is_rejected():
     token = jwt.encode(
         {
             "sub": "1",
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "exp": (
+                datetime.now(timezone.utc)
+                + timedelta(minutes=5)
+            ),
         },
         SECRET_KEY,
         algorithm=ALGORITHM,
@@ -316,11 +445,17 @@ def test_jwt_without_role_is_rejected():
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid authentication token"
+
+    assert response.json()["detail"] == (
+        "Invalid authentication token"
+    )
 
 
 def test_jwt_with_invalid_user_id_is_rejected():
@@ -329,7 +464,10 @@ def test_jwt_with_invalid_user_id_is_rejected():
         {
             "sub": "not-an-integer",
             "role": "recruiter",
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            "exp": (
+                datetime.now(timezone.utc)
+                + timedelta(minutes=5)
+            ),
         },
         SECRET_KEY,
         algorithm=ALGORITHM,
@@ -337,24 +475,42 @@ def test_jwt_with_invalid_user_id_is_rejected():
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid authentication token"
+
+    assert response.json()["detail"] == (
+        "Invalid authentication token"
+    )
 
 
 def test_logout():
-    """Logout endpoint returns a successful response for an authenticated user."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Logout endpoint returns a successful response
+    for an authenticated user.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/auth/logout",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 200
-    assert "Logout successful" in response.json()["message"]
+
+    assert "Logout successful" in (
+        response.json()["message"]
+    )
 
 
 # ============================================================================
@@ -363,126 +519,579 @@ def test_logout():
 
 
 def test_admin_can_view_users():
-    """Admin users can access the admin user listing."""
-    token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    """
+    Admin users can access the admin user listing.
+    """
+    token = login(
+        ADMIN_EMAIL,
+        ADMIN_PASSWORD,
+    )
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 200
 
     users = response.json()
+
     assert len(users) >= 3
-    assert all("password_hash" not in user for user in users)
+
+    assert all(
+        "password_hash" not in user
+        for user in users
+    )
 
 
 def test_candidate_cannot_access_admin_users():
-    """Candidates cannot access admin-only routes."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    Candidates cannot access admin-only routes.
+    """
+    token = login(
+        CANDIDATE_EMAIL,
+        CANDIDATE_PASSWORD,
+    )
 
     response = client.get(
         "/admin/users",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
 
 
 def test_candidate_cannot_create_job():
-    """Candidates cannot create recruiter-owned jobs."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    Candidates cannot create recruiter-owned jobs.
+    """
+    token = login(
+        CANDIDATE_EMAIL,
+        CANDIDATE_PASSWORD,
+    )
 
     response = client.post(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         json={
             "title": "Candidate Access Test",
-            "description": "Candidate should not be allowed to create this job.",
+            "description": (
+                "Candidate should not be allowed "
+                "to create this job."
+            ),
         },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
 
 
 def test_admin_cannot_create_job():
-    """Admins cannot create recruiter-owned jobs."""
-    token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    """
+    Admins cannot create recruiter-owned jobs.
+    """
+    token = login(
+        ADMIN_EMAIL,
+        ADMIN_PASSWORD,
+    )
 
     response = client.post(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         json={
             "title": "Admin Access Test",
-            "description": "Admin should not be allowed to create this job.",
+            "description": (
+                "Admin should not be allowed "
+                "to create this job."
+            ),
         },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
 
 
 def test_recruiter_cannot_access_candidate_assessment():
-    """Recruiters cannot access candidate-only assessment routes."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Recruiters cannot access candidate-only assessment routes.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.get(
         "/assessments/1",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
 
 
 def test_admin_cannot_access_candidate_assessment():
-    """Admins cannot access candidate-only assessment routes."""
-    token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    """
+    Admins cannot access candidate-only assessment routes.
+    """
+    token = login(
+        ADMIN_EMAIL,
+        ADMIN_PASSWORD,
+    )
 
     response = client.get(
         "/assessments/1",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
+
+
+def _create_candidate_assessment_fixture(db):
+    """
+    Create a small published assessment assigned to the
+    configured candidate for lifecycle-compatible tests.
+    """
+
+    recruiter = (
+        db.query(User)
+        .filter(
+            User.email == RECRUITER_EMAIL
+        )
+        .first()
+    )
+
+    candidate = (
+        db.query(User)
+        .filter(
+            User.email == CANDIDATE_EMAIL
+        )
+        .first()
+    )
+
+    assert recruiter is not None
+    assert candidate is not None
+
+    job = Job(
+        title=f"S1 Candidate Job {uuid4().hex[:8]}",
+        description=(
+            "Published assessment candidate "
+            "access regression fixture."
+        ),
+        created_by=recruiter.id,
+    )
+
+    db.add(job)
+    db.flush()
+
+    skill = Skill(
+        name=f"s1-candidate-skill-{uuid4().hex[:8]}",
+    )
+
+    db.add(skill)
+    db.flush()
+
+    question = Question(
+        question_text=(
+            "Sprint 1 candidate lifecycle question"
+        ),
+        question_type="MCQ",
+        skill_id=skill.id,
+        difficulty="easy",
+        options=[
+            "A",
+            "B",
+            "C",
+            "D",
+        ],
+        correct_answer="A",
+        explanation="Private test explanation.",
+        status="approved",
+        source="manual",
+    )
+
+    db.add(question)
+    db.flush()
+
+    assessment = Assessment(
+        job_id=job.id,
+        title=(
+            f"S1 Candidate Assessment "
+            f"{uuid4().hex[:8]}"
+        ),
+        status="published",
+        review_status="approved",
+    )
+
+    db.add(assessment)
+    db.flush()
+
+    assessment_question = AssessmentQuestion(
+        assessment_id=assessment.id,
+        question_id=question.id,
+        display_order=1,
+        question_text=question.question_text,
+        question_type=question.question_type,
+        skill_id=question.skill_id,
+        difficulty=question.difficulty,
+        options=question.options,
+        correct_answer=question.correct_answer,
+        explanation=question.explanation,
+    )
+
+    db.add(assessment_question)
+
+    attempt = Attempt(
+        assessment_id=assessment.id,
+        candidate_id=candidate.id,
+        status="assigned",
+        started_at=None,
+        expires_at=None,
+    )
+
+    db.add(attempt)
+    db.commit()
+
+    return {
+        "job": job,
+        "skill": skill,
+        "question": question,
+        "assessment": assessment,
+        "attempt": attempt,
+    }
+
+
+def _cleanup_candidate_assessment_fixture(
+    db,
+    fixture,
+):
+    """Remove a candidate assessment test fixture."""
+
+    if fixture is None:
+        return
+
+    assessment = fixture["assessment"]
+    attempt = fixture["attempt"]
+    question = fixture["question"]
+    skill = fixture["skill"]
+    job = fixture["job"]
+
+    db.query(AssessmentQuestion).filter(
+        AssessmentQuestion.assessment_id
+        == assessment.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.query(Attempt).filter(
+        Attempt.id == attempt.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.query(Assessment).filter(
+        Assessment.id == assessment.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.query(Question).filter(
+        Question.id == question.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.query(Skill).filter(
+        Skill.id == skill.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.query(Job).filter(
+        Job.id == job.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    db.commit()
 
 
 def test_candidate_can_access_assigned_assessment():
-    """A candidate can access an assessment assigned through an attempt."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    A candidate can access a published assessment assigned
+    through an Attempt.
+    """
+    db = SessionLocal()
 
-    response = client.get(
-        "/assessments/1",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    fixture = None
 
-    assert response.status_code == 200
+    try:
+        fixture = _create_candidate_assessment_fixture(
+            db
+        )
 
-    data = response.json()
+        token = login(
+            CANDIDATE_EMAIL,
+            CANDIDATE_PASSWORD,
+        )
 
-    assert data["assessment_id"] == 1
-    assert data["job_id"] == 1
-    assert data["attempt_id"] in (1, 2)
-    assert data["title"] == "S1-02 Database Link Test"
+        response = client.get(
+            f"/assessments/"
+            f"{fixture['assessment'].id}",
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+            },
+        )
+
+        assert response.status_code == 200
+
+        data = response.json()
+
+        assert data["assessment_id"] == (
+            fixture["assessment"].id
+        )
+
+        assert data["job_id"] == (
+            fixture["job"].id
+        )
+
+        assert data["attempt_id"] == (
+            fixture["attempt"].id
+        )
+
+        assert data["title"] == (
+            fixture["assessment"].title
+        )
+
+        assert data["status"] == "published"
+
+        # Questions are withheld on the intro view until an attempt starts.
+        assert data["questions"] == []
+
+    finally:
+        if db.is_active:
+            db.rollback()
+
+        _cleanup_candidate_assessment_fixture(
+            db,
+            fixture,
+        )
+
+        db.close()
 
 
 def test_candidate_cannot_access_unassigned_assessment():
-    """A candidate cannot access an existing assessment not assigned to them."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    A candidate cannot access a published assessment
+    that is not assigned to that candidate.
+    """
+    db = SessionLocal()
 
-    response = client.get(
-        "/assessments/2",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    fixture = None
+    candidate = None
+    recruiter = None
+    unassigned_attempt = None
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == (
-        "Assessment not assigned to this candidate"
-    )
+    try:
+        recruiter = (
+            db.query(User)
+            .filter(
+                User.email == RECRUITER_EMAIL
+            )
+            .first()
+        )
+
+        candidate = (
+            db.query(User)
+            .filter(
+                User.email == CANDIDATE_EMAIL
+            )
+            .first()
+        )
+
+        assert recruiter is not None
+        assert candidate is not None
+
+        fixture = _create_candidate_assessment_fixture(
+            db
+        )
+
+        other_candidate = (
+            db.query(User)
+            .filter(
+                User.role == "candidate",
+                User.id != candidate.id,
+            )
+            .first()
+        )
+
+        if other_candidate is None:
+            other_candidate = User(
+                username=f"s1-other-candidate-{uuid4().hex[:8]}",
+                email=(
+                    f"s1-other-candidate-"
+                    f"{uuid4().hex[:8]}@test.com"
+                ),
+                password_hash="temporary",
+                role="candidate",
+            )
+
+            db.add(other_candidate)
+            db.flush()
+
+        unassigned_attempt = Attempt(
+            assessment_id=fixture["assessment"].id,
+            candidate_id=other_candidate.id,
+            status="assigned",
+            started_at=None,
+            expires_at=None,
+        )
+
+        db.add(unassigned_attempt)
+        db.commit()
+
+        token = login(
+            CANDIDATE_EMAIL,
+            CANDIDATE_PASSWORD,
+        )
+
+        response = client.get(
+            f"/assessments/"
+            f"{fixture['assessment'].id}",
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+            },
+        )
+
+        assert response.status_code == 200
+
+        # The fixture already contains an assignment to the
+        # configured candidate, so create a separate assessment
+        # for the actual negative resource-level check.
+        unassigned_assessment = Assessment(
+            job_id=fixture["job"].id,
+            title=(
+                f"S1 Unassigned Assessment "
+                f"{uuid4().hex[:8]}"
+            ),
+            status="published",
+            review_status="approved",
+        )
+
+        db.add(unassigned_assessment)
+        db.flush()
+
+        unassigned_question = AssessmentQuestion(
+            assessment_id=unassigned_assessment.id,
+            question_id=fixture["question"].id,
+            display_order=1,
+            question_text=(
+                fixture["question"].question_text
+            ),
+            question_type=(
+                fixture["question"].question_type
+            ),
+            skill_id=fixture["question"].skill_id,
+            difficulty=(
+                fixture["question"].difficulty
+            ),
+            options=fixture["question"].options,
+            correct_answer=(
+                fixture["question"].correct_answer
+            ),
+            explanation=(
+                fixture["question"].explanation
+            ),
+        )
+
+        db.add(unassigned_question)
+        db.commit()
+
+        response = client.get(
+            f"/assessments/"
+            f"{unassigned_assessment.id}",
+            headers={
+                "Authorization":
+                    f"Bearer {token}",
+            },
+        )
+
+        assert response.status_code == 403
+
+        assert response.json()["detail"] == (
+            "Assessment not assigned to this candidate"
+        )
+
+        db.query(AssessmentQuestion).filter(
+            AssessmentQuestion.assessment_id
+            == unassigned_assessment.id
+        ).delete(
+            synchronize_session=False
+        )
+
+        db.query(Assessment).filter(
+            Assessment.id
+            == unassigned_assessment.id
+        ).delete(
+            synchronize_session=False
+        )
+
+        db.commit()
+
+    finally:
+        if db.is_active:
+            db.rollback()
+
+        if unassigned_attempt is not None:
+            db.query(Attempt).filter(
+                Attempt.id
+                == unassigned_attempt.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        _cleanup_candidate_assessment_fixture(
+            db,
+            fixture,
+        )
+
+        db.close()
 
 
 # ============================================================================
@@ -491,17 +1100,25 @@ def test_candidate_cannot_access_unassigned_assessment():
 
 
 def test_recruiter_can_create_job():
-    """Recruiters can create a JD through the JSON endpoint."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Recruiters can create a JD through the JSON endpoint.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         json={
             "title": "Automated Test Job",
             "description": (
-                "Senior Python Developer with FastAPI and PostgreSQL "
-                "experience."
+                "Senior Python Developer with "
+                "FastAPI and PostgreSQL experience."
             ),
         },
     )
@@ -510,35 +1127,62 @@ def test_recruiter_can_create_job():
 
     data = response.json()
 
-    assert data["title"] == "Automated Test Job"
+    assert data["title"] == (
+        "Automated Test Job"
+    )
+
     assert data["created_by"] == 1
-    assert len(data["description"]) >= 20
+
+    assert len(
+        data["description"]
+    ) >= 20
 
 
 def test_get_jobs():
-    """Job collection endpoint returns a list."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Job collection endpoint returns a list.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.get(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+
+    assert isinstance(
+        response.json(),
+        list,
+    )
 
 
 def test_get_created_job():
-    """A newly created job can be retrieved by ID."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    A newly created job can be retrieved by ID.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     create_response = client.post(
         "/jobs",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         json={
             "title": "Retrieval Test Job",
             "description": (
-                "Python backend developer with FastAPI and PostgreSQL skills."
+                "Python backend developer with "
+                "FastAPI and PostgreSQL skills."
             ),
         },
     )
@@ -549,7 +1193,10 @@ def test_get_created_job():
 
     response = client.get(
         f"/jobs/{job_id}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 200
@@ -557,23 +1204,37 @@ def test_get_created_job():
     data = response.json()
 
     assert data["id"] == job_id
-    assert data["title"] == "Retrieval Test Job"
+
+    assert data["title"] == (
+        "Retrieval Test Job"
+    )
+
     assert data["description"]
 
 
 def test_recruiter_can_upload_txt_job_description():
-    """Recruiters can upload a valid TXT JD and persist its contents."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Recruiters can upload a valid TXT JD and
+    persist its contents.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "automated_test_jd.txt",
                 (
-                    b"Senior Python Developer with strong FastAPI and "
-                    b"PostgreSQL experience."
+                    b"Senior Python Developer with "
+                    b"strong FastAPI and PostgreSQL "
+                    b"experience."
                 ),
                 "text/plain",
             )
@@ -584,32 +1245,59 @@ def test_recruiter_can_upload_txt_job_description():
 
     data = response.json()
 
-    assert data["title"] == "automated_test_jd"
+    assert data["title"] == (
+        "automated_test_jd"
+    )
+
     assert data["created_by"] == 1
-    assert "FastAPI" in data["description"]
+
+    assert "FastAPI" in (
+        data["description"]
+    )
 
 
 def test_recruiter_can_upload_pdf_job_description():
-    """Recruiters can upload a PDF and the application extracts its text."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Recruiters can upload a PDF and the application
+    extracts its text.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     pdf_buffer = BytesIO()
-    pdf = canvas.Canvas(pdf_buffer)
 
-    pdf.drawString(72, 750, "Senior Python Developer")
+    pdf = canvas.Canvas(
+        pdf_buffer
+    )
+
+    pdf.drawString(
+        72,
+        750,
+        "Senior Python Developer",
+    )
+
     pdf.drawString(
         72,
         720,
-        "We are looking for a Python developer with FastAPI and "
-        "PostgreSQL experience.",
+        (
+            "We are looking for a Python "
+            "developer with FastAPI and "
+            "PostgreSQL experience."
+        ),
     )
 
     pdf.save()
+
     pdf_buffer.seek(0)
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "automated_test_jd.pdf",
@@ -623,20 +1311,40 @@ def test_recruiter_can_upload_pdf_job_description():
 
     data = response.json()
 
-    assert data["title"] == "automated_test_jd"
+    assert data["title"] == (
+        "automated_test_jd"
+    )
+
     assert data["created_by"] == 1
-    assert "Senior Python Developer" in data["description"]
-    assert "FastAPI" in data["description"]
-    assert "PostgreSQL" in data["description"]
+
+    assert "Senior Python Developer" in (
+        data["description"]
+    )
+
+    assert "FastAPI" in (
+        data["description"]
+    )
+
+    assert "PostgreSQL" in (
+        data["description"]
+    )
 
 
 def test_short_job_description_rejected():
-    """JD content shorter than 20 characters is rejected."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    JD content shorter than 20 characters is rejected.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "short.txt",
@@ -647,40 +1355,62 @@ def test_short_job_description_rejected():
     )
 
     assert response.status_code == 422
+
     assert response.json()["detail"] == (
-        "Job description must contain at least 20 characters."
+        "Job description must contain at "
+        "least 20 characters."
     )
 
 
 def test_whitespace_only_job_description_is_rejected():
-    """Whitespace-only JD content is rejected after trimming."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Whitespace-only JD content is rejected after trimming.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "whitespace.txt",
-                b"                         ",
+                (
+                    b"                         "
+                ),
                 "text/plain",
             )
         },
     )
 
     assert response.status_code == 422
+
     assert response.json()["detail"] == (
-        "Job description must contain at least 20 characters."
+        "Job description must contain at "
+        "least 20 characters."
     )
 
 
 def test_empty_file_rejected():
-    """Completely empty uploads are rejected."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Completely empty uploads are rejected.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "empty.txt",
@@ -691,50 +1421,87 @@ def test_empty_file_rejected():
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Uploaded file is empty."
+
+    assert response.json()["detail"] == (
+        "Uploaded file is empty."
+    )
 
 
 def test_upload_without_file_is_rejected():
-    """Upload requests without a file fail request validation."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Upload requests without a file fail request validation.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
     )
 
     assert response.status_code == 422
 
 
 def test_unsupported_file_type_rejected():
-    """Unsupported document formats are rejected."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    Unsupported document formats are rejected.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "invalid.docx",
-                b"This is an unsupported file type test.",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                (
+                    b"This is an unsupported "
+                    b"file type test."
+                ),
+                (
+                    "application/"
+                    "vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
             )
         },
     )
 
     assert response.status_code == 400
+
     assert response.json()["detail"] == (
-        "Unsupported file type. Only TXT and PDF files are supported."
+        "Unsupported file type. Only TXT "
+        "and PDF files are supported."
     )
 
 
 def test_malformed_pdf_is_rejected():
-    """A PDF MIME type containing invalid PDF bytes is rejected."""
-    token = login(RECRUITER_EMAIL, RECRUITER_PASSWORD)
+    """
+    A PDF MIME type containing invalid PDF
+    bytes is rejected.
+    """
+    token = login(
+        RECRUITER_EMAIL,
+        RECRUITER_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "malformed.pdf",
@@ -745,65 +1512,114 @@ def test_malformed_pdf_is_rejected():
     )
 
     assert response.status_code == 400
+
     assert response.json()["detail"] == (
-        "Unable to extract text from the uploaded PDF."
+        "Unable to extract text from "
+        "the uploaded PDF."
     )
 
 
 def test_candidate_cannot_upload_job_description():
-    """Candidates cannot upload recruiter-owned job descriptions."""
-    token = login(CANDIDATE_EMAIL, CANDIDATE_PASSWORD)
+    """
+    Candidates cannot upload recruiter-owned
+    job descriptions.
+    """
+    token = login(
+        CANDIDATE_EMAIL,
+        CANDIDATE_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "candidate.txt",
-                b"Senior Python Developer with FastAPI experience.",
+                (
+                    b"Senior Python Developer "
+                    b"with FastAPI experience."
+                ),
                 "text/plain",
             )
         },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
+
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
 
 
 def test_admin_cannot_upload_job_description():
-    """Admins cannot upload recruiter-owned job descriptions."""
-    token = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    """
+    Admins cannot upload recruiter-owned
+    job descriptions.
+    """
+    token = login(
+        ADMIN_EMAIL,
+        ADMIN_PASSWORD,
+    )
 
     response = client.post(
         "/jobs/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization":
+                f"Bearer {token}",
+        },
         files={
             "file": (
                 "admin.txt",
-                b"Senior Python Developer with FastAPI experience.",
+                (
+                    b"Senior Python Developer "
+                    b"with FastAPI experience."
+                ),
                 "text/plain",
             )
         },
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Insufficient permissions"
 
+    assert response.json()["detail"] == (
+        "Insufficient permissions"
+    )
+
+
+# ============================================================================
 # S1-02: Database relationship integrity
+# ============================================================================
+
 
 def test_database_relationships_are_persisted():
-    """Verify User -> Job -> Assessment -> Attempt foreign-key relationships."""
+    """
+    Verify User -> Job -> Assessment -> Attempt
+    foreign-key relationships and the new attempt
+    lifecycle defaults.
+    """
     db = SessionLocal()
+
+    job = None
+    assessment = None
+    attempt = None
 
     try:
         recruiter = (
             db.query(User)
-            .filter(User.email == RECRUITER_EMAIL)
+            .filter(
+                User.email == RECRUITER_EMAIL
+            )
             .first()
         )
+
         candidate = (
             db.query(User)
-            .filter(User.email == CANDIDATE_EMAIL)
+            .filter(
+                User.email == CANDIDATE_EMAIL
+            )
             .first()
         )
 
@@ -811,20 +1627,30 @@ def test_database_relationships_are_persisted():
         assert candidate is not None
 
         job = Job(
-            title="Database Relationship Test",
+            title=(
+                "Database Relationship Test "
+                f"{uuid4().hex[:8]}"
+            ),
             description=(
-                "Test job for validating Sprint 1 database relationships."
+                "Test job for validating Sprint 1 "
+                "database relationships."
             ),
             created_by=recruiter.id,
         )
+
         db.add(job)
         db.flush()
 
         assessment = Assessment(
             job_id=job.id,
-            title="Database Relationship Assessment",
-            status="active",
+            title=(
+                "Database Relationship Assessment "
+                f"{uuid4().hex[:8]}"
+            ),
+            status="published",
+            review_status="approved",
         )
+
         db.add(assessment)
         db.flush()
 
@@ -832,16 +1658,32 @@ def test_database_relationships_are_persisted():
             assessment_id=assessment.id,
             candidate_id=candidate.id,
         )
+
         db.add(attempt)
         db.flush()
 
         assert job.created_by == recruiter.id
+
         assert assessment.job_id == job.id
-        assert attempt.assessment_id == assessment.id
-        assert attempt.candidate_id == candidate.id
-        assert attempt.status == "started"
-        assert attempt.started_at is not None
+
+        assert attempt.assessment_id == (
+            assessment.id
+        )
+
+        assert attempt.candidate_id == (
+            candidate.id
+        )
+
+        assert attempt.status == "assigned"
+
+        assert attempt.started_at is None
+
+        assert attempt.expires_at is None
+
+        assert attempt.submitted_at is None
+
         assert attempt.created_at is not None
+
         assert attempt.updated_at is not None
 
     finally:

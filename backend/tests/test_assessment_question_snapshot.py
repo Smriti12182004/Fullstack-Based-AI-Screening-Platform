@@ -13,6 +13,7 @@ from app.models import (
     QuestionSet,
     QuestionSetConfiguration,
     Section,
+    SectionSkill,
     Skill,
     User,
 )
@@ -86,16 +87,22 @@ def test_assessment_question_snapshot_is_preserved_after_question_edit():
         db.add(question_set)
         db.flush()
 
+        section = Section(
+            question_set_id=question_set.id,
+            name="Snapshot Test - Easy",
+            difficulty="easy",
+            display_order=1,
+            is_locked=False,
+        )
+
+        db.add(section)
+        db.flush()
+
         db.add(
-            Section(
-                question_set_id=question_set.id,
+            SectionSkill(
+                section_id=section.id,
                 skill_id=skill.id,
-                name="Snapshot Test",
-                display_order=1,
-                easy_count=1,
-                medium_count=0,
-                hard_count=0,
-                is_locked=False,
+                question_count=1,
             )
         )
 
@@ -164,7 +171,6 @@ def test_assessment_question_snapshot_is_preserved_after_question_edit():
         assert snapshot.correct_answer == "Original A"
         assert snapshot.explanation == "Original explanation."
 
-        # Simulate a later Question Bank edit.
         question.question_text = "Edited question text"
         question.options = [
             "Edited A",
@@ -181,7 +187,6 @@ def test_assessment_question_snapshot_is_preserved_after_question_edit():
         db.expire(snapshot)
         db.refresh(snapshot)
 
-        # The finalized assessment snapshot must remain unchanged.
         assert question.question_text == "Edited question text"
         assert question.difficulty == "medium"
 
@@ -210,8 +215,7 @@ def test_assessment_question_snapshot_is_preserved_after_question_edit():
     finally:
         if assessment is not None:
             db.query(AssessmentQuestion).filter(
-                AssessmentQuestion.assessment_id
-                == assessment.id
+                AssessmentQuestion.assessment_id == assessment.id
             ).delete(
                 synchronize_session=False
             )
@@ -226,6 +230,17 @@ def test_assessment_question_snapshot_is_preserved_after_question_edit():
             db.query(QuestionSetConfiguration).filter(
                 QuestionSetConfiguration.question_set_id
                 == question_set.id
+            ).delete(
+                synchronize_session=False
+            )
+
+            db.query(SectionSkill).filter(
+                SectionSkill.section_id.in_(
+                    db.query(Section.id).filter(
+                        Section.question_set_id
+                        == question_set.id
+                    )
+                )
             ).delete(
                 synchronize_session=False
             )

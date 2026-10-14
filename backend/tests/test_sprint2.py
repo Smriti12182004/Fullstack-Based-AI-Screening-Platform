@@ -1,4 +1,4 @@
-"""Sprint 2 automated tests."""
+﻿"""Sprint 2 automated tests."""
 
 import json
 import os
@@ -355,21 +355,12 @@ def test_job_description_with_no_identifiable_skills_returns_empty_list():
         "skills": [],
     }
 
-    mock_response = type(
-        "MockResponse",
-        (),
-        {
-            "status_code": 200,
-            "json": lambda self: {
-                "response": json.dumps(fake_extraction),
-            },
-            "raise_for_status": lambda self: None,
-        },
-    )()
+    def fake_call(prompt, **kwargs):
+        return json.dumps(fake_extraction)
 
     with patch(
-        "app.services.llm_service.requests.post",
-        return_value=mock_response,
+        "app.services.llm_service._call_llm_chat",
+        side_effect=fake_call,
     ):
         result = extract_skills_from_jd(
             "We are looking for a motivated team member "
@@ -378,9 +369,8 @@ def test_job_description_with_no_identifiable_skills_returns_empty_list():
 
     assert result.model_dump() == {
         "skills": [],
-        "experience_required": None
+        "experience_required": None,
     }
-
 
 def test_repeated_skill_extraction_does_not_create_duplicate_links(
     test_job,
@@ -700,58 +690,44 @@ def test_job_skill_duplicate_link_is_rejected_by_database(
 
 def test_malformed_llm_response_raises_llm_response_error():
     """Malformed LLM output is converted into a controlled service error."""
-    mock_response = type(
-        "MockResponse",
-        (),
-        {
-            "status_code": 200,
-            "json": lambda self: {
-                "response": '{"skills": [invalid json]}',
-            },
-            "raise_for_status": lambda self: None,
-        },
-    )()
+
+    def fake_call(prompt, **kwargs):
+        return '{"skills": [invalid json]}'
 
     with patch(
-        "app.services.llm_service.requests.post",
-        return_value=mock_response,
+        "app.services.llm_service._call_llm_chat",
+        side_effect=fake_call,
     ):
         with pytest.raises(
             LLMResponseError,
-            match="Ollama returned an invalid structured skill response.",
+            match="invalid structured skill response",
         ):
             extract_skills_from_jd(
                 "Python developer with FastAPI experience."
             )
 
-
 def test_llm_call_uses_prepared_text_and_structured_output():
-    """LLM call receives prepared JD text and requests JSON output."""
-    mock_response = type(
-        "MockResponse",
-        (),
-        {
-            "status_code": 200,
-            "json": lambda self: {
-                "response": json.dumps(
+    """LLM call receives prepared JD text and requests structured output."""
+    captured = {}
+
+    def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured["kwargs"] = kwargs
+        return json.dumps(
+            {
+                "skills": [
                     {
-                        "skills": [
-                            {
-                                "name": "python",
-                                "category": "Programming Language",
-                            }
-                        ]
+                        "name": "python",
+                        "category": "Programming Language",
                     }
-                ),
-            },
-            "raise_for_status": lambda self: None,
-        },
-    )()
+                ]
+            }
+        )
 
     with patch(
-        "app.services.llm_service.requests.post",
-        return_value=mock_response,
-    ) as mock_post:
+        "app.services.llm_service._call_llm_chat",
+        side_effect=fake_call,
+    ):
         result = extract_skills_from_jd(
             "  Python developer\n\nwith   FastAPI experience.  "
         )
@@ -763,31 +739,18 @@ def test_llm_call_uses_prepared_text_and_structured_output():
                 "category": "Programming Language",
             }
         ],
-        "experience_required": None
+        "experience_required": None,
     }
 
-    mock_post.assert_called_once()
+    assert "Python developer with FastAPI experience." in captured["prompt"]
 
-    call_args = mock_post.call_args
-
-    expected_url = (
-        f"{settings.ollama_base_url.rstrip('/')}/api/generate"
+    assert captured["kwargs"]["response_format"]["type"] == "json_schema"
+    assert captured["kwargs"]["response_format"]["json_schema"]["name"] == (
+        "evalyn_skill_extraction"
     )
-
-    assert call_args.args[0] == expected_url
-
-    request_json = call_args.kwargs["json"]
-
-    assert request_json["model"] == settings.ollama_model
-    assert request_json["stream"] is False
-    assert request_json["format"] == "json"
-
-    assert (
-        "Python developer with FastAPI experience."
-        in request_json["prompt"]
-    )
-
-
+    assert captured["kwargs"]["temperature"] == 0.15
+    assert captured["kwargs"]["reasoning_effort"] == "none"
+    assert captured["kwargs"]["max_completion_tokens"] == 600
 def test_candidate_cannot_extract_job_skills(
     test_job,
 ):
@@ -898,51 +861,38 @@ def test_skill_extraction_rolls_back_on_database_error(
 
 
 def test_llm_connection_error_is_handled():
-    """LLM connection failures are converted to LLMConnectionError."""
-    connection_error = requests.exceptions.ConnectionError(
-        "Ollama unavailable"
-    )
+    """LLM connection failures are propagated as LLMConnectionError."""
 
     with patch(
-        "app.services.llm_service.requests.post",
-        side_effect=connection_error,
+        "app.services.llm_service._call_llm_chat",
+        side_effect=LLMConnectionError(
+            "Unable to connect to the Gemini API."
+        ),
     ):
         with pytest.raises(
             LLMConnectionError,
-            match="Unable to connect to Ollama API.",
+            match="Gemini",
         ):
             extract_skills_from_jd(
                 "Python developer with FastAPI experience."
             )
 
-
 def test_llm_rate_limit_error_is_handled():
-    """LLM rate-limit failures are converted to LLMQuotaError."""
-    mock_response = type(
-        "MockResponse",
-        (),
-        {
-            "status_code": 429,
-        },
-    )()
-
-    rate_limit_error = requests.exceptions.HTTPError(
-        "Rate limit exceeded",
-        response=mock_response,
-    )
+    """LLM rate-limit failures are propagated as LLMQuotaError."""
 
     with patch(
-        "app.services.llm_service.requests.post",
-        side_effect=rate_limit_error,
+        "app.services.llm_service._call_llm_chat",
+        side_effect=LLMQuotaError(
+            "Gemini API rate limit or quota was exceeded."
+        ),
     ):
         with pytest.raises(
             LLMQuotaError,
-            match="Ollama API quota or rate limit exceeded.",
+            match="Gemini",
         ):
             extract_skills_from_jd(
                 "Python developer with FastAPI experience."
             )
-
 
 def test_skill_extraction_connection_failure_returns_503(
     test_job,
@@ -1148,32 +1098,22 @@ def test_empty_skill_names_are_removed():
 
 
 def test_empty_llm_output_returns_empty_skills():
-    """Missing LLM output is handled safely."""
-    mock_response = type(
-        "MockResponse",
-        (),
-        {
-            "status_code": 200,
-            "json": lambda self: {
-                "response": "",
-            },
-            "raise_for_status": lambda self: None,
-        },
-    )()
+    """Empty LLM output is converted into a controlled service error."""
+
+    def fake_call(prompt, **kwargs):
+        return ""
 
     with patch(
-        "app.services.llm_service.requests.post",
-        return_value=mock_response,
+        "app.services.llm_service._call_llm_chat",
+        side_effect=fake_call,
     ):
-        result = extract_skills_from_jd(
-            "Python developer with FastAPI experience."
-        )
-
-    assert result.model_dump() == {
-        "skills": [],
-        "experience_required": None
-    }
-
+        with pytest.raises(
+            LLMResponseError,
+            match="invalid structured skill response",
+        ):
+            extract_skills_from_jd(
+                "Python developer with FastAPI experience."
+            )
 
 def test_overly_long_skill_name_is_removed():
     """Skill names exceeding the storage limit are not persisted."""
@@ -2396,4 +2336,103 @@ def test_seed_questions_are_idempotent():
         assert after_count == expected_count
         assert after_count == before_count
     finally:
+        db.close()
+def test_extracted_skills_are_linked_to_correct_job():
+    """Extracted skills are linked to the job being processed."""
+    db = SessionLocal()
+    job = None
+    created_skill = None
+
+    try:
+        recruiter = (
+            db.query(User)
+            .filter(User.email == RECRUITER_EMAIL)
+            .first()
+        )
+
+        assert recruiter is not None
+
+        unique_skill_name = f"s2-correct-job-skill-{uuid4().hex[:8]}"
+
+        job = Job(
+            title="Correct Job Link Test",
+            description=(
+                "Python backend developer with FastAPI experience."
+            ),
+            created_by=recruiter.id,
+        )
+
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+        fake_extraction = SkillExtractionResponse(
+            skills=[
+                ExtractedSkill(
+                    name=unique_skill_name,
+                    category="Other",
+                )
+            ],
+            experience_required="2-4 years",
+        )
+
+        with patch(
+            "app.services.skill_service.extract_skills_from_jd",
+            return_value=fake_extraction,
+        ):
+            extract_and_save_job_skills(db, job)
+
+        db.refresh(job)
+
+        assert job.experience_required == "2-4 years"
+
+        created_skill = (
+            db.query(Skill)
+            .filter(Skill.name == unique_skill_name)
+            .first()
+        )
+
+        assert created_skill is not None
+
+        correct_link = (
+            db.query(JobSkill)
+            .filter(
+                JobSkill.job_id == job.id,
+                JobSkill.skill_id == created_skill.id,
+            )
+            .first()
+        )
+
+        assert correct_link is not None
+        assert correct_link.job_id == job.id
+
+    finally:
+        if job is not None:
+            db.query(JobSkill).filter(
+                JobSkill.job_id == job.id
+            ).delete(
+                synchronize_session=False
+            )
+
+            db.query(Job).filter(
+                Job.id == job.id
+            ).delete(
+                synchronize_session=False
+            )
+
+        if created_skill is not None:
+            remaining_links = (
+                db.query(JobSkill)
+                .filter(JobSkill.skill_id == created_skill.id)
+                .count()
+            )
+
+            if remaining_links == 0:
+                db.query(Skill).filter(
+                    Skill.id == created_skill.id
+                ).delete(
+                    synchronize_session=False
+                )
+
+        db.commit()
         db.close()

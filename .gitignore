@@ -237,4 +237,16 @@ backend/.venv/
 sync_*.py
 node_modules/
 
+# User-uploaded profile photos
+/backend/uploads/profile_photos/
 
+# Local virtual environments and backup files
+/.venv-*/
+*.bak*
+*.before-*
+*.before_*
+*.failed-*
+.env.*
+!.env.example
+**/.env.*
+!**/.env.example

@@ -1,10 +1,19 @@
+
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.db.base import Base
 from app.db.timestamps import utc_now
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -40,21 +49,11 @@ class AssessmentQuestion(Base):
         index=True,
     )
 
-    display_order: Mapped[int] = mapped_column(
-        nullable=False,
-    )
+    display_order: Mapped[int] = mapped_column(nullable=False)
 
-    # Immutable snapshot of the question content used
-    # in this finalized assessment.
-    question_text: Mapped[str] = mapped_column(
-        Text,
-        nullable=False,
-    )
-
-    question_type: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-    )
+    # Immutable question snapshot.
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
     skill_id: Mapped[int] = mapped_column(
         ForeignKey("skills.id", ondelete="RESTRICT"),
@@ -62,23 +61,30 @@ class AssessmentQuestion(Base):
         index=True,
     )
 
-    difficulty: Mapped[str] = mapped_column(
-        String(20),
-        nullable=False,
-    )
-
-    options: Mapped[list[str] | None] = mapped_column(
-        JSON,
-        nullable=True,
-    )
+    difficulty: Mapped[str] = mapped_column(String(20), nullable=False)
+    options: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     correct_answer: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
 
-    explanation: Mapped[str | None] = mapped_column(
-        Text,
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Freeze the section and rubric used for this assessment.
+    section_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    section_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    rubric: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON,
         nullable=True,
     )
 
@@ -93,6 +99,4 @@ class AssessmentQuestion(Base):
         back_populates="assessment_questions",
     )
 
-    question: Mapped["Question"] = relationship(
-        "Question",
-    )
+    question: Mapped["Question"] = relationship("Question")

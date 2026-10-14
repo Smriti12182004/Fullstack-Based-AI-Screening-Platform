@@ -1,0 +1,6 @@
+# Evalyn background generation queue
+# RQ 2.12.0 is the current stable release and supports Python 3.10+.
+rq==2.12.0
+
+# redis-py 8.1.0 is the current stable Redis client.
+redis==8.1.0

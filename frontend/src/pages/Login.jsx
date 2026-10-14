@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   Mail,
@@ -10,6 +10,7 @@ import {
   ArrowRight,
   User,
   UserPlus,
+  ShieldCheck,
 } from "lucide-react";
 
 import api from "../services/api";
@@ -19,34 +20,84 @@ import AuthLayout from "../layouts/AuthLayout";
 const PRIMARY = "#5658E8";
 const DARK = "#26284F";
 
+const ROLE_OPTIONS = [
+  {
+    value: "candidate",
+    label: "Candidate",
+  },
+  {
+    value: "recruiter",
+    label: "HR / Recruiter",
+  },
+  {
+    value: "assessment_manager",
+    label: "Assessment Manager",
+  },
+  {
+    value: "assessment_reviewer",
+    label: "Assessment Reviewer",
+  },
+  {
+    value: "organization_admin",
+    label: "Organization Administrator",
+  },
+];
+
 function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [isRegistering, setIsRegistering] = useState(false);
+  const requestedNext = searchParams.get("next");
+  const candidateDestination =
+    requestedNext && /^\/assessments\/\d+$/.test(requestedNext)
+      ? requestedNext
+      : "/candidate/dashboard";
 
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  const [showPassword, setShowPassword] = useState(false);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const [emailVerificationRequired, setEmailVerificationRequired] =
+  const [isRegistering, setIsRegistering] =
     useState(false);
+
+  const [username, setUsername] =
+    useState("");
+
+  const [email, setEmail] =
+    useState("");
+
+  const [password, setPassword] =
+    useState("");
+
+  const [role, setRole] =
+    useState("candidate");
+
+  const [showPassword, setShowPassword] =
+    useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [
+    emailVerificationRequired,
+    setEmailVerificationRequired,
+  ] = useState(false);
 
   const resetForm = () => {
     setUsername("");
     setEmail("");
     setPassword("");
+    setRole("candidate");
     setShowPassword(false);
     setMessage("");
     setEmailVerificationRequired(false);
   };
 
   const switchMode = () => {
-    setIsRegistering((value) => !value);
+    setIsRegistering(
+      (value) => !value
+    );
+
     resetForm();
   };
 
@@ -58,41 +109,72 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await api.post("/auth/login", {
-        email,
-        password,
-      });
+      const response =
+        await api.post(
+          "/auth/login",
+          {
+            email,
+            password,
+          }
+        );
 
       login(response.data);
 
-      const userRole = response.data?.role;
+      const userRole =
+        response.data?.role;
 
-      if (userRole === "candidate") {
-        navigate("/candidate/dashboard");
-      } else if (userRole === "organization_admin") {
+      if (
+        userRole === "candidate"
+      ) {
+        navigate(candidateDestination, { replace: true });
+      } else if (
+        userRole === "admin"
+      ) {
         navigate("/admin");
-      } else if (userRole === "assessment_manager") {
-        navigate("/questions");
-      } else if (userRole === "recruiter") {
-        navigate("/dashboard");
-      } else if (userRole === "assessment_reviewer") {
-        navigate("/review");
+      } else if (
+        userRole ===
+        "organization_admin"
+      ) {
+        navigate("/admin");
+      } else if (
+        userRole ===
+        "assessment_manager"
+      ) {
+        navigate(
+          "/manager/dashboard"
+        );
+      } else if (
+        userRole ===
+        "assessment_reviewer"
+      ) {
+        navigate(
+          "/reviewer/dashboard"
+        );
       } else {
-        setMessage("Unsupported user role.");
+        navigate("/dashboard");
       }
     } catch (error) {
       console.error(error);
 
-      const detail = error.response?.data?.detail;
+      const detail =
+        error.response?.data?.detail;
 
       if (
-        error.response?.status === 403 &&
-        detail === "Please verify your email before logging in."
+        error.response?.status ===
+          403 &&
+        detail ===
+          "Please verify your email beforelogging in."
       ) {
         setMessage(detail);
-        setEmailVerificationRequired(true);
+
+        setEmailVerificationRequired(
+          true
+        );
       } else {
-        setMessage(detail || "Invalid email or password");
+        setMessage(
+          detail ||
+            "Invalid email or password"
+        );
       }
     } finally {
       setLoading(false);
@@ -106,20 +188,30 @@ function Login() {
     setLoading(true);
 
     try {
-      const response = await api.post("/auth/register", {
-        username,
-        email,
-        password,
-        role: "candidate",
-      });
+      const response =
+        await api.post(
+          "/auth/register",
+          {
+            username,
+            email,
+            password,
+            role,
+          }
+        );
 
-      const registeredEmail = response.data?.email || email;
+      const registeredEmail =
+        response.data?.email ||
+        email;
 
-      navigate("/auth/verify-email", {
-        state: {
-          email: registeredEmail,
-        },
-      });
+      navigate(
+        "/auth/verify-email",
+        {
+          state: {
+            email:
+              registeredEmail,
+          },
+        }
+      );
     } catch (error) {
       console.error(error);
 
@@ -133,11 +225,14 @@ function Login() {
   };
 
   const handleGoToVerification = () => {
-    navigate("/auth/verify-email", {
-      state: {
-        email,
-      },
-    });
+    navigate(
+      "/auth/verify-email",
+      {
+        state: {
+          email,
+        },
+      }
+    );
   };
 
   return (
@@ -147,50 +242,88 @@ function Login() {
         {/* =====================================================
             AUTH CARD
         ===================================================== */}
-        <div className="relative overflow-hidden rounded-[28px] border border-[#DDE1EA] bg-white shadow-[0_24px_70px_rgba(38,40,79,0.10)]">
 
-          {/* Top brand strip */}
-          <div className="h-1.5 w-full bg-[#5658E8]" />
+        <div className="group relative overflow-hidden rounded-[28px] border border-[#DDE1EA] bg-white shadow-[0_24px_70px_rgba(38,40,79,0.10)]">
 
-          <div className="px-7 py-8 sm:px-10 sm:py-10">
+          {/* SECURITY DOODLE */}
+
+          <div className="pointer-events-none absolute right-5 top-4 hidden text-[#7A61D8]/25 sm:block">
+
+            <div className="relative flex h-24 w-24 items-center justify-center transition-all duration-500 group-hover:rotate-3group-hover:scale-105">
+
+              <span className="absolute inset-2 rounded-[26px] border border-dashed border-current" />
+
+              <span className="absolute left-1 top-7 h-1.5 w-1.5 rounded-full bg-[#3B82F6]/55 transition-transform duration-500 group-hover:translate-x-1" />
+
+              <span className="absolute right-0 top-3 h-2 w-2 animate-pulse rounded-full bg-[#5658E8]/55" />
+
+              <span className="absolute bottom-6 left-0 h-1.5 w-1.5 rounded-full bg-[#B85C87]/45" />
+
+              <span className="absolute bottom-5 right-1 h-px w-8 rotate-[-22deg] bg-current opacity-50" />
+
+              <span className="absolute left-2 top-12 h-px w-5 rotate-[22deg] bg-current opacity-35" />
+
+              <ShieldCheck
+                size={42}
+                strokeWidth={1.05}
+              />
+
+            </div>
+
+          </div>
+
+          <div className="relative px-7 py-8 sm:px-10 sm:py-10">
 
             {/* =================================================
                 HEADER
             ================================================= */}
+
             <div className="mb-9">
 
               <div className="flex items-center gap-3">
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EAE5F9] text-[#7862C8]">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xlbg-[#EAE5F9] text-[#7862C8] transition-allduration-300 group-hover:scale-105 group-hover:-rotate-3">
+
                   {isRegistering ? (
                     <UserPlus size={19} />
                   ) : (
                     <Lock size={19} />
                   )}
+
                 </div>
 
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
+
+                  <p className="text-[9px]font-bold uppercase tracking-[0.2em] text-[#5658E8]">
+
                     {isRegistering
                       ? "Create account"
                       : "Secure access"}
+
                   </p>
 
                   <p className="mt-1 text-[10px] text-[#98A2B3]">
                     Evalyn screening platform
                   </p>
+
                 </div>
 
               </div>
 
               <h1 className="mt-7 text-[35px] font-semibold leading-tight tracking-[-0.035em] text-[#182033] sm:text-[40px]">
-                {isRegistering ? "Create your account" : "Welcome back"}
+
+                {isRegistering
+                  ? "Create your account"
+                  : "Welcome back"}
+
               </h1>
 
               <p className="mt-3 max-w-md text-sm leading-7 text-[#667085]">
+
                 {isRegistering
-                  ? "Set up your Evalyn candidate account and get started with your assessment journey."
+                  ? "Set up your Evalyn account and get started with the screening workspace."
                   : "Sign in to continue to your Evalyn screening workspace."}
+
               </p>
 
             </div>
@@ -198,6 +331,7 @@ function Login() {
             {/* =================================================
                 MODE TOGGLE
             ================================================= */}
+
             <div className="mb-8 grid grid-cols-2 rounded-xl bg-[#F3F4F8] p-1">
 
               <button
@@ -237,6 +371,7 @@ function Login() {
             {/* =================================================
                 FORM
             ================================================= */}
+
             <form
               onSubmit={
                 isRegistering
@@ -247,8 +382,11 @@ function Login() {
             >
 
               {/* USERNAME */}
+
               {isRegistering && (
+
                 <div>
+
                   <label
                     htmlFor="username"
                     className="mb-2.5 block text-xs font-semibold text-[#344054]"
@@ -268,7 +406,9 @@ function Login() {
                       type="text"
                       value={username}
                       onChange={(e) =>
-                        setUsername(e.target.value)
+                        setUsername(
+                          e.target.value
+                        )
                       }
                       placeholder="Choose a username"
                       autoComplete="username"
@@ -282,14 +422,17 @@ function Login() {
                   </div>
 
                   <p className="mt-2 text-[11px] leading-5 text-[#98A2B3]">
-                    3–50 characters. Letters, numbers and
+                    3â€“50 characters. Letters, numbers and
                     underscores only.
                   </p>
+
                 </div>
               )}
 
               {/* EMAIL */}
+
               <div>
+
                 <label
                   htmlFor="email"
                   className="mb-2.5 block text-xs font-semibold text-[#344054]"
@@ -309,19 +452,75 @@ function Login() {
                     type="email"
                     value={email}
                     onChange={(e) =>
-                      setEmail(e.target.value)
+                      setEmail(
+                        e.target.value
+                      )
                     }
                     placeholder="you@company.com"
                     autoComplete="email"
                     required
-                    className="h-[52px] w-full rounded-xl border border-[#D6DAE3] bg-[#FBFCFE] pl-11 pr-4 text-sm text-[#182033] outline-none transition duration-200 placeholder:text-[#A4ACB9] focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
+                    className="h-[52px] w-full rounded-xl border border-[#D6DAE3] bg-[#FBFCFE] pl-11 pr-4 text-sm text-[#182033]outline-none transition duration-200 placeholder:text-[#A4ACB9] focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
                   />
 
                 </div>
+
               </div>
 
+              {/* =================================================
+                  ACCOUNT TYPE
+              ================================================= */}
+
+              {isRegistering && (
+
+                <div>
+
+                  <label
+                    htmlFor="role"
+                    className="mb-2.5 block text-xs font-semibold text-[#344054]"
+                  >
+                    Account type
+                  </label>
+
+                  <div className="relative">
+
+                    <UserPlus
+                      size={17}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+                    />
+
+                    <select
+                      id="role"
+                      value={role}
+                      onChange={(e) =>
+                        setRole(
+                          e.target.value
+                        )
+                      }
+                      className="h-[52px] w-full appearance-none rounded-xl border border-[#D6DAE3] bg-[#FBFCFE] pl-11 pr-4 text-sm text-[#182033] outline-none transition duration-200 focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
+                    >
+
+                      {ROLE_OPTIONS.map(
+                        (option) => (
+                          <option
+                            key={option.value}
+                            value={option.value}
+                          >
+                            {option.label}
+                          </option>
+                        )
+                      )}
+
+                    </select>
+
+                  </div>
+
+                </div>
+              )}
+
               {/* PASSWORD */}
+
               <div>
+
                 <label
                   htmlFor="password"
                   className="mb-2.5 block text-xs font-semibold text-[#344054]"
@@ -345,7 +544,9 @@ function Login() {
                     }
                     value={password}
                     onChange={(e) =>
-                      setPassword(e.target.value)
+                      setPassword(
+                        e.target.value
+                      )
                     }
                     placeholder="Enter your password"
                     autoComplete={
@@ -366,25 +567,30 @@ function Login() {
                         (value) => !value
                       )
                     }
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[#98A2B3] transition duration-200 hover:bg-[#F3F4F8] hover:text-[#5658E8]"
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded-lgp-1.5 text-[#98A2B3] transition duration-200 hover:bg-[#F3F4F8] hover:text-[#5658E8]"
                     aria-label={
                       showPassword
                         ? "Hide password"
                         : "Show password"
                     }
                   >
+
                     {showPassword ? (
                       <EyeOff size={17} />
                     ) : (
                       <Eye size={17} />
                     )}
+
                   </button>
 
                 </div>
+
               </div>
 
               {/* REMEMBER / FORGOT */}
+
               {!isRegistering && (
+
                 <div className="flex items-center justify-between gap-4">
 
                   <label className="flex cursor-pointer items-center gap-2.5 text-xs text-[#667085]">
@@ -409,7 +615,9 @@ function Login() {
               )}
 
               {/* MESSAGE */}
+
               {message && (
+
                 <div
                   role="alert"
                   className={`rounded-xl border px-4 py-3.5 text-sm leading-6 ${
@@ -420,46 +628,60 @@ function Login() {
                 >
                   {message}
                 </div>
+
               )}
 
               {/* VERIFY EMAIL */}
+
               {emailVerificationRequired && (
+
                 <button
                   type="button"
-                  onClick={handleGoToVerification}
+                  onClick={
+                    handleGoToVerification
+                  }
                   disabled={!email}
                   className="group flex h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-[#D2D6E0] bg-white text-sm font-semibold text-[#5658E8] transition duration-200 hover:border-[#5658E8] hover:bg-[#F8F8FF] disabled:cursor-not-allowed disabled:opacity-50"
                 >
+
                   Verify email
 
                   <ArrowRight
                     size={16}
                     className="transition-transform duration-200 group-hover:translate-x-1"
                   />
+
                 </button>
+
               )}
 
               {/* SUBMIT */}
+
               {!emailVerificationRequired && (
+
                 <button
                   type="submit"
                   disabled={loading}
                   className="group flex h-[53px] w-full items-center justify-center gap-2 rounded-xl bg-[#5658E8] text-sm font-semibold text-white shadow-[0_10px_24px_rgba(86,88,232,0.20)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#4B4DD8] hover:shadow-[0_14px_30px_rgba(86,88,232,0.24)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
+
                   {loading
                     ? isRegistering
                       ? "Creating account..."
                       : "Signing in..."
                     : isRegistering
-                    ? "Create account"
-                    : "Sign in"}
+                      ? "Create account"
+                      : "Sign in"}
 
                   {!loading && (
+
                     <ArrowRight
                       size={17}
                       className="transition-transform duration-200 group-hover:translate-x-1"
                     />
+
                   )}
+
                 </button>
               )}
 
@@ -468,12 +690,15 @@ function Login() {
             {/* =================================================
                 FOOTER
             ================================================= */}
+
             <div className="mt-9 border-t border-[#EAECF0] pt-7 text-center">
 
               <p className="text-xs text-[#98A2B3]">
+
                 {isRegistering
                   ? "Already have an account?"
                   : "Don't have an account?"}
+
               </p>
 
               <button
@@ -481,22 +706,24 @@ function Login() {
                 onClick={switchMode}
                 className="mt-2 text-sm font-semibold text-[#5658E8] transition duration-200 hover:text-[#494BD8]"
               >
+
                 {isRegistering
                   ? "Sign in instead"
                   : "Create an account"}
+
               </button>
 
             </div>
 
           </div>
+
         </div>
 
-        {/* =====================================================
-            SECURITY NOTE
-        ===================================================== */}
+        {/* SECURITY NOTE */}
+
         <div className="mt-6 flex items-center justify-center gap-2.5 text-[10px] font-medium text-[#98A2B3]">
 
-          <span className="h-1.5 w-1.5 rounded-full bg-[#5658E8]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#5658E8]" />
 
           Secure access to your Evalyn workspace
 

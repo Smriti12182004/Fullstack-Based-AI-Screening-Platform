@@ -1,14 +1,14 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.db.timestamps import utc_now
-
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.assessment import Assessment
     from app.models.job import Job
     from app.models.section import Section
     from app.models.user import User
@@ -24,7 +24,10 @@ class QuestionSet(Base):
     )
 
     job_id: Mapped[int] = mapped_column(
-        ForeignKey("jobs.id", ondelete="CASCADE"),
+        ForeignKey(
+            "jobs.id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
         index=True,
     )
@@ -39,6 +42,37 @@ class QuestionSet(Base):
         nullable=True,
     )
 
+    # ---------------------------------------------------------
+    # Hiring process metadata
+    # ---------------------------------------------------------
+
+    # Example: 2026
+    hiring_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        default=lambda: datetime.now(timezone.utc).year,
+        index=True,
+    )
+
+    # Example: "Backend Developer - Campus Hiring"
+    hiring_cycle: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    # One blueprint produces exactly two new assessment sets:
+    # Set A and Set B. Existing database rows may still contain 3.
+    variant_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=2,
+        server_default="2",
+    )
+
+    # ---------------------------------------------------------
+    # Lifecycle
+    # ---------------------------------------------------------
+
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
@@ -52,13 +86,19 @@ class QuestionSet(Base):
     )
 
     created_by: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"),
+        ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+        ),
         nullable=False,
         index=True,
     )
 
     reviewed_by: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="RESTRICT"),
+        ForeignKey(
+            "users.id",
+            ondelete="RESTRICT",
+        ),
         nullable=True,
         index=True,
     )
@@ -86,6 +126,10 @@ class QuestionSet(Base):
         onupdate=utc_now,
     )
 
+    # ---------------------------------------------------------
+    # Relationships
+    # ---------------------------------------------------------
+
     job: Mapped["Job"] = relationship(
         "Job",
         back_populates="question_sets",
@@ -97,10 +141,18 @@ class QuestionSet(Base):
         cascade="all, delete-orphan",
     )
 
-    configuration: Mapped["QuestionSetConfiguration | None"] = relationship(
+    configuration: Mapped[
+        "QuestionSetConfiguration | None"
+    ] = relationship(
         "QuestionSetConfiguration",
         back_populates="question_set",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    assessments: Mapped[list["Assessment"]] = relationship(
+        "Assessment",
+        back_populates="question_set",
         cascade="all, delete-orphan",
     )
 

@@ -1,3 +1,4 @@
+
 import {
   BrowserRouter,
   Routes,
@@ -14,15 +15,22 @@ import Jobs from "./pages/Jobs";
 import NewJob from "./pages/NewJob";
 import JobDetails from "./pages/JobDetails";
 import SkillReview from "./pages/SkillReview";
+import Assessments from "./pages/Assessments";
+import ProctoringActivity from "./pages/ProctoringActivity";
+import AssessmentResults from "./pages/AssessmentResults";
 
 import QuestionBank from "./pages/QuestionBank";
+import QuestionBanks from "./pages/QuestionBanks";
 import AssessmentConfig from "./pages/AssessmentConfig";
+import ManagerAssessmentSets from "./pages/ManagerAssessmentSets";
 import ReviewerWorkspace from "./pages/ReviewerWorkspace";
 
 import CandidateDashboard from "./pages/CandidateDashboard";
 import CandidateAssessment from "./pages/CandidateAssessment";
 
 import AdminDashboard from "./pages/AdminDashboard";
+import RoleDashboard from "./pages/RoleDashboard";
+import AssignedJobs from "./pages/AssignedJobs";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -30,20 +38,13 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-
-        {/* =====================================================
-            PUBLIC LANDING PAGE
-        ===================================================== */}
-
+        {/* PUBLIC LANDING PAGE: always show Landing at the root URL */}
         <Route
           path="/"
           element={<Landing />}
         />
 
-        {/* =====================================================
-            PUBLIC AUTHENTICATION
-        ===================================================== */}
-
+        {/* PUBLIC AUTHENTICATION */}
         <Route
           path="/login"
           element={<Login />}
@@ -54,10 +55,7 @@ function App() {
           element={<VerifyEmail />}
         />
 
-        {/* =====================================================
-            RECRUITER DASHBOARD
-        ===================================================== */}
-
+        {/* RECRUITER DASHBOARD */}
         <Route
           path="/dashboard"
           element={
@@ -67,24 +65,12 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            RECRUITER JOBS
-        ===================================================== */}
-
+        {/* RECRUITER JOBS */}
         <Route
           path="/jobs"
           element={
             <ProtectedRoute allowedRoles={["recruiter"]}>
               <Jobs />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/jobs/:jobId"
-          element={
-            <ProtectedRoute allowedRoles={["recruiter"]}>
-              <JobDetails />
             </ProtectedRoute>
           }
         />
@@ -99,6 +85,15 @@ function App() {
         />
 
         <Route
+          path="/jobs/:jobId"
+          element={
+            <ProtectedRoute allowedRoles={["recruiter"]}>
+              <JobDetails />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/jobs/:jobId/skills"
           element={
             <ProtectedRoute allowedRoles={["recruiter"]}>
@@ -107,15 +102,95 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            ASSESSMENT MANAGER
-        ===================================================== */}
+        {/* HR ASSESSMENTS */}
+        <Route
+          path="/assessments"
+          element={
+            <ProtectedRoute allowedRoles={["recruiter"]}>
+              <Assessments />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* HR ASSESSMENT RESULTS */}
+        <Route
+          path="/assessments/:assessmentId/results"
+          element={
+            <ProtectedRoute
+              allowedRoles={[
+                "recruiter",
+                "assessment_manager",
+              ]}
+            >
+              <AssessmentResults />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* PROCTORING MONITORING */}
+        <Route
+          path="/proctoring/activity"
+          element={
+            <ProtectedRoute
+              allowedRoles={[
+                "recruiter",
+                "assessment_manager",
+              ]}
+            >
+              <ProctoringActivity />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ASSESSMENT MANAGER */}
+        <Route
+          path="/manager/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_manager"]}>
+              <RoleDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/manager/jobs"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_manager"]}>
+              <AssignedJobs />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/questions"
           element={
             <ProtectedRoute allowedRoles={["assessment_manager"]}>
               <QuestionBank />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/question-banks"
+          element={
+            <ProtectedRoute
+              allowedRoles={[
+                "recruiter",
+                "assessment_manager",
+                "assessment_reviewer",
+              ]}
+            >
+              <QuestionBanks />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* QUESTION-SET AUTHORING */}
+        <Route
+          path="/question-sets/:questionSetId"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_manager"]}>
+              <AssessmentConfig />
             </ProtectedRoute>
           }
         />
@@ -129,9 +204,25 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            ASSESSMENT REVIEWER
-        ===================================================== */}
+        {/* MANAGER QUESTION SOURCING WORKSPACE */}
+        <Route
+          path="/manager/question-sets/:questionSetId/questions"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_manager"]}>
+              <ManagerAssessmentSets />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ASSESSMENT REVIEWER */}
+        <Route
+          path="/reviewer/dashboard"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_reviewer"]}>
+              <RoleDashboard />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/review"
@@ -142,10 +233,7 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            CANDIDATE DASHBOARD
-        ===================================================== */}
-
+        {/* CANDIDATE DASHBOARD */}
         <Route
           path="/candidate/dashboard"
           element={
@@ -155,6 +243,7 @@ function App() {
           }
         />
 
+        {/* CANDIDATE ASSESSMENT */}
         <Route
           path="/assessments/:assessmentId"
           element={
@@ -164,10 +253,7 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            ORGANIZATION ADMINISTRATOR
-        ===================================================== */}
-
+        {/* ORGANIZATION ADMINISTRATOR */}
         <Route
           path="/admin"
           element={
@@ -177,15 +263,16 @@ function App() {
           }
         />
 
-        {/* =====================================================
-            FALLBACK
-        ===================================================== */}
-
+        {/* FALLBACK */}
         <Route
           path="*"
-          element={<Navigate to="/" replace />}
+          element={
+            <Navigate
+              to="/"
+              replace
+            />
+          }
         />
-
       </Routes>
     </BrowserRouter>
   );

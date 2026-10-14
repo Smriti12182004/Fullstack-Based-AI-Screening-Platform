@@ -13,6 +13,7 @@ from app.models import (
     QuestionSet,
     QuestionSetConfiguration,
     Section,
+    SectionSkill,
     Skill,
     User,
 )
@@ -86,18 +87,60 @@ def test_assessment_is_automatically_assembled():
         db.add(question_set)
         db.flush()
 
-        section = Section(
+        # Each section has exactly one difficulty.
+        easy_section = Section(
             question_set_id=question_set.id,
-            skill_id=skill.id,
-            name="Python",
+            name="Python - Easy",
+            difficulty="easy",
             display_order=1,
-            easy_count=1,
-            medium_count=1,
-            hard_count=1,
             is_locked=False,
         )
 
-        db.add(section)
+        medium_section = Section(
+            question_set_id=question_set.id,
+            name="Python - Medium",
+            difficulty="medium",
+            display_order=2,
+            is_locked=False,
+        )
+
+        hard_section = Section(
+            question_set_id=question_set.id,
+            name="Python - Hard",
+            difficulty="hard",
+            display_order=3,
+            is_locked=False,
+        )
+
+        db.add_all(
+            [
+                easy_section,
+                medium_section,
+                hard_section,
+            ]
+        )
+        db.flush()
+
+        # One question required for the same skill in each section.
+        db.add_all(
+            [
+                SectionSkill(
+                    section_id=easy_section.id,
+                    skill_id=skill.id,
+                    question_count=1,
+                ),
+                SectionSkill(
+                    section_id=medium_section.id,
+                    skill_id=skill.id,
+                    question_count=1,
+                ),
+                SectionSkill(
+                    section_id=hard_section.id,
+                    skill_id=skill.id,
+                    question_count=1,
+                ),
+            ]
+        )
 
         configuration = QuestionSetConfiguration(
             question_set_id=question_set.id,
@@ -227,6 +270,17 @@ def test_assessment_is_automatically_assembled():
                 synchronize_session=False
             )
 
+            db.query(SectionSkill).filter(
+                SectionSkill.section_id.in_(
+                    db.query(Section.id).filter(
+                        Section.question_set_id
+                        == question_set.id
+                    )
+                )
+            ).delete(
+                synchronize_session=False
+            )
+
             db.query(Section).filter(
                 Section.question_set_id == question_set.id
             ).delete(
@@ -340,16 +394,22 @@ def test_assembly_fails_when_approved_questions_are_insufficient():
         db.add(question_set)
         db.flush()
 
+        section = Section(
+            question_set_id=question_set.id,
+            name="Python - Easy",
+            difficulty="easy",
+            display_order=1,
+            is_locked=False,
+        )
+
+        db.add(section)
+        db.flush()
+
         db.add(
-            Section(
-                question_set_id=question_set.id,
+            SectionSkill(
+                section_id=section.id,
                 skill_id=skill.id,
-                name="Python",
-                display_order=1,
-                easy_count=2,
-                medium_count=0,
-                hard_count=0,
-                is_locked=False,
+                question_count=2,
             )
         )
 
@@ -382,13 +442,16 @@ def test_assembly_fails_when_approved_questions_are_insufficient():
                 question_set_id=question_set.id,
                 title="Should Fail",
             )
+
             raise AssertionError(
                 "Assembly should fail when approved questions are insufficient."
             )
+
         except AssessmentServiceError as exc:
             assert str(exc) == (
-                "Section 'Python' requires 2 approved easy "
-                "question(s), but only 1 are available."
+                "Section 'Python - Easy' requires 2 approved "
+                "easy question(s) for skill "
+                f"{skill.id}, but only 1 are available."
             )
 
     finally:
@@ -396,8 +459,7 @@ def test_assembly_fails_when_approved_questions_are_insufficient():
             db.query(AssessmentQuestion).filter(
                 AssessmentQuestion.assessment_id.in_(
                     db.query(Assessment.id).filter(
-                        Assessment.job_id
-                        == job.id
+                        Assessment.job_id == job.id
                     )
                 )
             ).delete(
@@ -413,6 +475,17 @@ def test_assembly_fails_when_approved_questions_are_insufficient():
             db.query(QuestionSetConfiguration).filter(
                 QuestionSetConfiguration.question_set_id
                 == question_set.id
+            ).delete(
+                synchronize_session=False
+            )
+
+            db.query(SectionSkill).filter(
+                SectionSkill.section_id.in_(
+                    db.query(Section.id).filter(
+                        Section.question_set_id
+                        == question_set.id
+                    )
+                )
             ).delete(
                 synchronize_session=False
             )

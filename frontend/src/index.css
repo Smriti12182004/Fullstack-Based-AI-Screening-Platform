@@ -10,17 +10,18 @@
   --color-brand-100: #dcefeb;
   --color-brand-50: #eef7f5;
 
-  --color-ai-600: #6558d3;
-  --color-ai-100: #e9e6ff;
-  --color-ai-50: #f4f2ff;
+  /* Slightly deeper AI / purple accent */
+  --color-ai-600: #5b4cb8;
+  --color-ai-100: #e7e3fb;
+  --color-ai-50: #f3f1fc;
 
   --color-page: #f7f8f6;
   --color-surface: #ffffff;
   --color-surface-soft: #f3f5f2;
 
   --color-text-primary: #13201f;
-  --color-text-secondary: #61706e;
-  --color-text-muted: #8a9694;
+  --color-text-secondary: #52615e;
+  --color-text-muted: #6f7c79;
 
   --color-border: #dde5e2;
 
@@ -35,7 +36,14 @@
 ================================ */
 
 :root {
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 
   color: #13201f;
   background: #f7f8f6;
@@ -61,6 +69,123 @@ body {
   min-height: 100vh;
 
   background: #f7f8f6;
+
+  /*
+   * Slightly larger global baseline.
+   */
+  font-size: 15.5px;
+  line-height: 1.58;
+
+  color: #13201f;
+}
+
+
+/* ===============================
+   GLOBAL TEXT READABILITY
+================================ */
+
+/*
+ * Tailwind's explicit small sizes are used heavily throughout
+ * Evalyn. These overrides make those labels readable without
+ * changing the overall component structure.
+ */
+
+[class*="text-[8px]"] {
+  font-size: 0.6875rem !important;
+  line-height: 1.4 !important;
+}
+
+
+[class*="text-[9px]"] {
+  font-size: 0.6875rem !important;
+  line-height: 1.45 !important;
+}
+
+
+[class*="text-[10px]"] {
+  font-size: 0.75rem !important;
+  line-height: 1.45 !important;
+}
+
+
+[class*="text-[11px]"] {
+  font-size: 0.8125rem !important;
+  line-height: 1.5 !important;
+}
+
+
+/*
+ * Slightly enlarge common Tailwind text sizes.
+ */
+[class~="text-xs"],
+[class*="text-xs"] {
+  font-size: 0.8125rem !important;
+  line-height: 1.5 !important;
+}
+
+
+[class~="text-sm"],
+[class*="text-sm"] {
+  font-size: 0.9375rem !important;
+  line-height: 1.55 !important;
+}
+
+
+/*
+ * Never let important explanatory content become too pale.
+ */
+.text-readable-secondary {
+  color: var(--color-text-secondary) !important;
+}
+
+
+.text-readable-muted {
+  color: var(--color-text-muted) !important;
+}
+
+
+p,
+li {
+  line-height: 1.58;
+}
+
+
+/* ===============================
+   SMALL CONTEXT / METRIC CARDS
+================================ */
+
+/*
+ * These are the small rounded information cards used for things such
+ * as Questions, Pending, Approved, Hiring Year, Duration, Slot counts,
+ * ratings, etc.
+ *
+ * Increase their size so the information has room to breathe.
+ */
+div.rounded-xl[class*="bg-[#FAFBFC]"] {
+  min-height: 66px !important;
+  padding: 0.8rem 1rem !important;
+}
+
+
+/*
+ * Context-card labels.
+ */
+div.rounded-xl[class*="bg-[#FAFBFC]"]
+  p[class*="text-[9px]"] {
+  font-size: 0.6875rem !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0.08em !important;
+}
+
+
+/*
+ * Context-card values.
+ */
+div.rounded-xl[class*="bg-[#FAFBFC]"]
+  p[class*="text-sm"] {
+  margin-top: 0.3rem !important;
+  font-size: 0.9375rem !important;
+  line-height: 1.45 !important;
 }
 
 
@@ -86,13 +211,198 @@ button:disabled {
 }
 
 
+input,
+textarea,
+select {
+  line-height: 1.5;
+}
+
+
+input::placeholder,
+textarea::placeholder {
+  color: #71807d;
+  opacity: 1;
+}
+
+
+textarea {
+  line-height: 1.58;
+}
+
+
+/* ===============================
+   FOCUS STATES
+================================ */
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #5b4cb8;
+  outline-offset: 2px;
+}
+
+
 /* ===============================
    TYPOGRAPHY
 ================================ */
 
 .font-display {
-  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-family:
+    "Inter",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+
   font-weight: 700;
+}
+
+
+small {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+
+/*
+ * Long-form content gets more comfortable line spacing.
+ */
+.prose,
+.long-form-content,
+.rich-text-content,
+.description-content {
+  line-height: 1.68;
+}
+
+
+/* ===============================
+   CODE READABILITY
+================================ */
+
+code,
+pre {
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace;
+}
+
+
+pre {
+  line-height: 1.58;
+  overflow-x: auto;
+}
+
+
+/* ===============================
+   DARKER SIDEBAR
+================================ */
+
+/*
+ * Existing Sidebar uses:
+ *
+ * from-[#26284F]
+ * via-[#292B55]
+ * to-[#222447]
+ *
+ * Keep the same design, just make it slightly deeper.
+ */
+[class*="from-[#26284F]"][class*="via-[#292B55]"][class*="to-[#222447]"] {
+  background-image:
+    linear-gradient(
+      to bottom,
+      #20213f 0%,
+      #242547 56%,
+      #1c1d38 100%
+    ) !important;
+}
+
+
+/*
+ * Sidebar brand block.
+ */
+[class*="bg-[#26284F]"] {
+  background-color: #20213f !important;
+}
+
+
+/*
+ * Sidebar borders should remain subtle against the darker background.
+ */
+[class*="border-[#3B3D63]"] {
+  border-color: #343552 !important;
+}
+
+
+/* ===============================
+   DARKER DASHBOARD PURPLE
+================================ */
+
+/*
+ * Current primary dashboard purple:
+ * #5658E8
+ *
+ * Make it slightly deeper while keeping the same visual identity.
+ */
+[class*="bg-[#5658E8]"] {
+  background-color: #4e50cc !important;
+}
+
+
+[class*="text-[#5658E8]"] {
+  color: #4e50cc !important;
+}
+
+
+[class*="border-[#5658E8]"] {
+  border-color: #4e50cc !important;
+}
+
+
+/*
+ * Current secondary dashboard purple:
+ * #7A61D8
+ */
+[class*="bg-[#7A61D8]"] {
+  background-color: #6b55c4 !important;
+}
+
+
+[class*="text-[#7A61D8]"] {
+  color: #6b55c4 !important;
+}
+
+
+[class*="border-[#7A61D8]"] {
+  border-color: #6b55c4 !important;
+}
+
+
+/*
+ * Other repeated purple accent currently used in cards/icons.
+ */
+[class*="text-[#7862C8]"] {
+  color: #6f55b7 !important;
+}
+
+
+[class*="bg-[#7862C8]"] {
+  background-color: #6f55b7 !important;
+}
+
+
+/*
+ * Dark purple hero/dashboard surfaces.
+ */
+[class*="bg-[#25264A]"] {
+  background-color: #20213f !important;
+}
+
+
+[class*="border-[#40426C]"] {
+  border-color: #373958 !important;
 }
 
 
@@ -104,3 +414,452 @@ button:disabled {
   background: #cfe4df;
   color: #003333;
 }
+
+
+/* EVALYN_THEME_BEGIN
+   Restrained dark palette: recolor neutral surfaces, retain brand/status colors.
+*/
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-page: #0e1722;
+  --color-surface: #172433;
+  --color-surface-soft: #1d2d3d;
+  --color-text-primary: #e3ebf2;
+  --color-text-secondary: #c0ccd7;
+  --color-text-muted: #9cabb9;
+  --color-border: #354657;
+}
+
+html[data-theme="dark"],
+html[data-theme="dark"] body,
+html[data-theme="dark"] #root {
+  background-color: #0e1722;
+  color: #e3ebf2;
+}
+
+/* Only neutral white/grey surfaces become dark cards. */
+html[data-theme="dark"] [class~="bg-white"],
+html[data-theme="dark"] [class*="bg-[#FAFBFC]"],
+html[data-theme="dark"] [class*="bg-[#FAFAFA]"],
+html[data-theme="dark"] [class*="bg-[#FBFCFD]"],
+html[data-theme="dark"] [class*="bg-[#F9FAFB]"],
+html[data-theme="dark"] [class*="bg-[#F8FAFC]"],
+html[data-theme="dark"] [class*="bg-[#F7F8F6]"],
+html[data-theme="dark"] [class*="bg-[#F5F7F8]"],
+html[data-theme="dark"] [class*="bg-[#F5F7F9]"],
+html[data-theme="dark"] [class*="bg-[#F5F7FA]"],
+html[data-theme="dark"] [class*="bg-[#F3F5F2]"],
+html[data-theme="dark"] [class*="bg-[#F3F6F8]"],
+html[data-theme="dark"] [class*="bg-[#F3F4F8]"],
+html[data-theme="dark"] [class*="bg-[#F1F4F6]"],
+html[data-theme="dark"] [class*="bg-[#EEF5F8]"],
+html[data-theme="dark"] [class*="bg-[#EEF2F6]"],
+html[data-theme="dark"] [class*="bg-[#EDF1F4]"] {
+  background-color: #172433;
+}
+
+/* Keep semantic status cards colored, but soften them for dark mode. */
+html[data-theme="dark"] [class*="bg-[#ECFDF3]"] {
+  background-color: #123c2e;
+}
+html[data-theme="dark"] [class*="bg-[#FFF1F0]"] {
+  background-color: #48252b;
+}
+html[data-theme="dark"] [class*="bg-[#F3F1FC]"],
+html[data-theme="dark"] [class*="bg-[#E7E3FB]"] {
+  background-color: #292748;
+}
+
+/* Correct neutral text colors without flattening brand/status colors. */
+html[data-theme="dark"] [class*="text-[#1F3544]"],
+html[data-theme="dark"] [class*="text-[#344B5A]"],
+html[data-theme="dark"] [class*="text-[#536D7A]"],
+html[data-theme="dark"] [class*="text-[#52615E]"],
+html[data-theme="dark"] [class*="text-[#475467]"],
+html[data-theme="dark"] [class*="text-[#344054]"],
+html[data-theme="dark"] [class*="text-[#13201f]"],
+html[data-theme="dark"] [class*="text-[#13201F]"],
+html[data-theme="dark"] [class*="text-[#1F2937]"],
+html[data-theme="dark"] [class*="text-[#111827]"] {
+  color: #e3ebf2;
+}
+
+html[data-theme="dark"] [class*="text-[#718894]"],
+html[data-theme="dark"] [class*="text-[#667085]"],
+html[data-theme="dark"] [class*="text-[#6F7C79]"],
+html[data-theme="dark"] [class*="text-[#98A2B3]"] {
+  color: #aab8c6;
+}
+
+/* Borders should stay understated; brand accents remain intact. */
+html[data-theme="dark"] [class*="border-[#"] {
+  border-color: #354657;
+}
+
+/* Inputs are neutral surfaces in both themes. */
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  background-color: #132131;
+  color: #e3ebf2;
+  border-color: #3b4d5f;
+}
+
+html[data-theme="dark"] input:disabled {
+  background-color: #1b2a39;
+  color: #aab8c6;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #9cabb9;
+}
+
+html[data-theme="dark"] table,
+html[data-theme="dark"] th,
+html[data-theme="dark"] td {
+  border-color: #354657;
+}
+/* EVALYN_THEME_END */
+
+
+/* EVALYN_DASHBOARD_REDESIGN_BEGIN */
+:root {
+  --evalyn-app-bg: #f4f6fa;
+  --evalyn-surface: #ffffff;
+  --evalyn-surface-soft: #f8f9fc;
+  --evalyn-app-text: #171c2c;
+  --evalyn-app-muted: #687386;
+  --evalyn-app-border: #e4e7ef;
+  --evalyn-app-accent: #6258dc;
+  --evalyn-app-accent-soft: #f0efff;
+}
+
+html[data-theme="dark"] {
+  --evalyn-app-bg: #0d1119;
+  --evalyn-surface: #151b26;
+  --evalyn-surface-soft: #1a2230;
+  --evalyn-app-text: #edf0f7;
+  --evalyn-app-muted: #a0aabc;
+  --evalyn-app-border: #2b3444;
+  --evalyn-app-accent: #aaa2ff;
+  --evalyn-app-accent-soft: #292640;
+}
+
+.evalyn-app-shell {
+  background: var(--evalyn-app-bg) !important;
+  color: var(--evalyn-app-text);
+}
+
+.evalyn-app-main {
+  min-width: 0;
+  background: var(--evalyn-app-bg);
+  color: var(--evalyn-app-text);
+}
+
+.evalyn-app-shell header {
+  background: var(--evalyn-surface) !important;
+  color: var(--evalyn-app-text);
+  border-color: var(--evalyn-app-border) !important;
+}
+
+.evalyn-dashboard-content {
+  color: var(--evalyn-app-text);
+}
+
+.evalyn-dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(265px, 318px);
+  gap: 28px;
+  padding: clamp(24px, 3vw, 40px);
+  border: 1px solid var(--evalyn-app-border);
+  border-radius: 22px;
+  background: var(--evalyn-surface);
+  color: var(--evalyn-app-text);
+  box-shadow: 0 8px 28px rgb(21 30 52 / 4%);
+}
+
+.evalyn-dashboard-hero-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.evalyn-dashboard-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--evalyn-app-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.evalyn-dashboard-live-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #20a787;
+  box-shadow: 0 0 0 4px rgb(32 167 135 / 12%);
+}
+
+.evalyn-dashboard-title {
+  margin: 27px 0 0;
+  color: var(--evalyn-app-text);
+  font-size: clamp(32px, 3.2vw, 45px);
+  font-weight: 650;
+  letter-spacing: -.055em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.evalyn-dashboard-title span {
+  color: var(--evalyn-app-accent);
+}
+
+.evalyn-dashboard-description {
+  max-width: 620px;
+  margin: 17px 0 0;
+  color: var(--evalyn-app-muted);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.evalyn-dashboard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.evalyn-dashboard-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--evalyn-app-border);
+  border-radius: 999px;
+  background: var(--evalyn-surface-soft);
+  color: var(--evalyn-app-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.evalyn-dashboard-tag svg {
+  color: var(--evalyn-app-accent);
+  flex: 0 0 auto;
+}
+
+.evalyn-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.evalyn-dashboard-primary-action,
+.evalyn-dashboard-secondary-action {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.evalyn-dashboard-primary-action {
+  background: #6258dc;
+  color: #fff;
+}
+
+.evalyn-dashboard-primary-action:hover {
+  background: #5147c9;
+  transform: translateY(-1px);
+}
+
+.evalyn-dashboard-secondary-action {
+  border-color: var(--evalyn-app-border);
+  background: var(--evalyn-surface);
+  color: var(--evalyn-app-text);
+}
+
+.evalyn-dashboard-secondary-action:hover {
+  border-color: var(--evalyn-app-accent);
+  background: var(--evalyn-app-accent-soft);
+}
+
+.evalyn-dashboard-overview {
+  align-self: stretch;
+  padding: 19px;
+  border: 1px solid var(--evalyn-app-border);
+  border-radius: 16px;
+  background: var(--evalyn-surface-soft);
+}
+
+.evalyn-dashboard-overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--evalyn-app-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+}
+
+.evalyn-dashboard-overview-count {
+  display: inline-flex;
+  min-width: 27px;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--evalyn-app-border);
+  border-radius: 8px;
+  color: var(--evalyn-app-text);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.evalyn-dashboard-overview-title {
+  margin: 18px 0 0;
+  color: var(--evalyn-app-text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+
+.evalyn-dashboard-overview-description {
+  margin: 6px 0 0;
+  color: var(--evalyn-app-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.evalyn-dashboard-status-list {
+  margin-top: 17px;
+  border-top: 1px solid var(--evalyn-app-border);
+}
+
+.evalyn-dashboard-status {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--evalyn-app-border);
+}
+
+.evalyn-dashboard-status-icon {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.evalyn-dashboard-accent-teal { background: #e4f7f1; color: #087e67; }
+.evalyn-dashboard-accent-violet { background: #efedff; color: #6555c7; }
+.evalyn-dashboard-accent-rose { background: #fbeaf1; color: #ad4f7b; }
+.evalyn-dashboard-accent-blue { background: #e7f0ff; color: #356bcc; }
+
+.evalyn-dashboard-status-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.evalyn-dashboard-status-title {
+  color: var(--evalyn-app-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.evalyn-dashboard-status-value {
+  color: var(--evalyn-app-muted);
+  font-size: 11px;
+}
+
+.evalyn-dashboard-status-indicator {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+}
+
+.evalyn-dashboard-indicator-teal { background: #20a787; }
+.evalyn-dashboard-indicator-violet { background: #8171e8; }
+.evalyn-dashboard-indicator-rose { background: #d36b99; }
+.evalyn-dashboard-indicator-blue { background: #4e8ce8; }
+
+.evalyn-dashboard-overview-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 15px;
+  color: var(--evalyn-app-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.evalyn-dashboard-overview-footer svg {
+  color: var(--evalyn-app-accent);
+  flex: 0 0 auto;
+}
+
+.evalyn-dashboard-content > section:not(:first-child) .mt-6.grid > div {
+  background: var(--evalyn-surface) !important;
+  border-color: var(--evalyn-app-border) !important;
+  color: var(--evalyn-app-text);
+}
+
+.evalyn-dashboard-content > section:not(:first-child) h2,
+.evalyn-dashboard-content > section:not(:first-child) h3 {
+  color: var(--evalyn-app-text);
+}
+
+@media (max-width: 1023px) {
+  .evalyn-dashboard-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .evalyn-dashboard-hero {
+    padding: 21px;
+    border-radius: 17px;
+  }
+
+  .evalyn-dashboard-title {
+    margin-top: 22px;
+    font-size: 34px;
+  }
+
+  .evalyn-dashboard-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .evalyn-dashboard-primary-action,
+  .evalyn-dashboard-secondary-action {
+    width: 100%;
+  }
+
+  .evalyn-dashboard-overview {
+    padding: 15px;
+  }
+}
+/* EVALYN_DASHBOARD_REDESIGN_END */

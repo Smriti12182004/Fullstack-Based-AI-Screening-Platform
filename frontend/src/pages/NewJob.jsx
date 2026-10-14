@@ -97,6 +97,34 @@ function NewJob() {
     useState(false);
 
   // ---------------------------------------------------------
+  // AUTOMATIC SKILL EXTRACTION AFTER JOB CREATION
+  // ---------------------------------------------------------
+  const extractSkillsForCreatedJob = async (jobId) => {
+    try {
+      await api.post(`/jobs/${jobId}/skills/extract`);
+      return { success: true, error: "" };
+    } catch (err) {
+      console.error("Automatic skill extraction failed:", err);
+
+      const detail = err.response?.data?.detail;
+      const message = Array.isArray(detail)
+        ? detail
+            .map((item) =>
+              item?.msg ||
+              (typeof item === "string"
+                ? item
+                : JSON.stringify(item))
+            )
+            .join(" ")
+        : typeof detail === "string"
+          ? detail
+          : "Unable to extract skills automatically.";
+
+      return { success: false, error: message };
+    }
+  };
+
+  // ---------------------------------------------------------
   // MANUAL JOB CREATION
   // ---------------------------------------------------------
   const handleCreateJob = async (event) => {
@@ -136,7 +164,18 @@ function NewJob() {
 
       const createdJob = response.data;
 
-      setSuccess("Job created successfully.");
+      const extraction = await extractSkillsForCreatedJob(
+        createdJob.id
+      );
+
+      if (!extraction.success) {
+        setError(
+          `Job was created successfully, but automatic skill extraction failed. ${extraction.error} You can retry from the Skill Review page.`
+        );
+        setSuccess("");
+        navigate(`/jobs/${createdJob.id}/skills`);
+        return;
+      }
 
       navigate(`/jobs/${createdJob.id}/skills`);
     } catch (err) {
@@ -275,9 +314,18 @@ function NewJob() {
 
       const createdJob = response.data;
 
-      setSuccess(
-        "Job description uploaded successfully."
+      const extraction = await extractSkillsForCreatedJob(
+        createdJob.id
       );
+
+      if (!extraction.success) {
+        setError(
+          `Job was created successfully, but automatic skill extraction failed. ${extraction.error} You can retry from the Skill Review page.`
+        );
+        setSuccess("");
+        navigate(`/jobs/${createdJob.id}/skills`);
+        return;
+      }
 
       navigate(`/jobs/${createdJob.id}/skills`);
     } catch (err) {
@@ -304,51 +352,78 @@ function NewJob() {
   };
 
   // ---------------------------------------------------------
-  // ADD AI SKILL
+  // NORMALIZE / ADD AI SKILLS
   // ---------------------------------------------------------
-  const handleAddSkill = () => {
-    const normalizedSkill =
-      skillInput.trim();
+  const parseSkillInput = (value) => {
+    return value
+      .split(/[,\n]+/)
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+  };
 
-    if (!normalizedSkill) {
-      return;
-    }
-
-    if (normalizedSkill.length > 100) {
-      setError(
-        "Each skill must be 100 characters or fewer."
-      );
-      return;
-    }
-
-    const alreadyExists = aiSkills.some(
-      (skill) =>
-        skill.toLowerCase() ===
-        normalizedSkill.toLowerCase()
+  const mergeSkills = (existingSkills, incomingSkills) => {
+    const merged = [...existingSkills];
+    const seen = new Set(
+      existingSkills.map((skill) =>
+        skill.trim().toLowerCase()
+      )
     );
 
-    if (alreadyExists) {
-      setError(
-        "This skill has already been added."
-      );
-      return;
+    for (const rawSkill of incomingSkills) {
+      const normalizedSkill = rawSkill.trim();
+
+      if (!normalizedSkill) {
+        continue;
+      }
+
+      if (normalizedSkill.length > 100) {
+        throw new Error(
+          `Skill "${normalizedSkill.slice(0, 40)}${normalizedSkill.length > 40 ? "…" : ""}" must be 100 characters or fewer.`
+        );
+      }
+
+      const key = normalizedSkill.toLowerCase();
+
+      if (!seen.has(key)) {
+        if (merged.length >= 50) {
+          throw new Error("You can add a maximum of 50 skills.");
+        }
+
+        merged.push(normalizedSkill);
+        seen.add(key);
+      }
     }
 
-    if (aiSkills.length >= 50) {
-      setError(
-        "You can add a maximum of 50 skills."
+    return merged;
+  };
+
+  const handleAddSkill = () => {
+    try {
+      const parsedSkills = parseSkillInput(skillInput);
+
+      if (parsedSkills.length === 0) {
+        return;
+      }
+
+      const mergedSkills = mergeSkills(
+        aiSkills,
+        parsedSkills
       );
-      return;
+
+      if (mergedSkills.length === aiSkills.length) {
+        setError("These skills have already been added.");
+        return;
+      }
+
+      setError("");
+      setAiSkills(mergedSkills);
+      setSkillInput("");
+    } catch (error) {
+      setError(
+        error.message ||
+          "Unable to add the selected skills."
+      );
     }
-
-    setError("");
-
-    setAiSkills((currentSkills) => [
-      ...currentSkills,
-      normalizedSkill,
-    ]);
-
-    setSkillInput("");
   };
 
   // ---------------------------------------------------------
@@ -390,9 +465,33 @@ function NewJob() {
         return;
       }
 
-      if (aiSkills.length === 0) {
+      // Allow the recruiter to type or paste comma-separated skills
+      // and generate directly without first clicking "Add".
+      let generationSkills = aiSkills;
+
+      try {
+        const typedSkills = parseSkillInput(skillInput);
+
+        generationSkills = mergeSkills(
+          aiSkills,
+          typedSkills
+        );
+
+        if (generationSkills.length !== aiSkills.length) {
+          setAiSkills(generationSkills);
+          setSkillInput("");
+        }
+      } catch (error) {
         setError(
-          "Please add at least one skill."
+          error.message ||
+            "Unable to process the required skills."
+        );
+        return;
+      }
+
+      if (generationSkills.length === 0) {
+        setError(
+          "Please enter at least one required skill."
         );
         return;
       }
@@ -435,7 +534,7 @@ function NewJob() {
           "/jobs/generate-description",
           {
             title: aiTitle.trim(),
-            skills: aiSkills,
+            skills: generationSkills,
             experience_required:
               experienceRequired.trim(),
             max_words: parsedMaxWords,
@@ -443,6 +542,11 @@ function NewJob() {
             additional_instructions:
               additionalInstructions.trim() ||
               null,
+          },
+          {
+            // Local Ollama generation can legitimately take several minutes.
+            // Keep the normal API timeout unchanged for the rest of the app.
+            timeout: 420000,
           }
         );
 
@@ -555,9 +659,20 @@ function NewJob() {
 
         const createdJob = response.data;
 
-        setSuccess(
-          "Job created successfully."
+        const extraction = await extractSkillsForCreatedJob(
+          createdJob.id
         );
+
+        if (!extraction.success) {
+          setError(
+            `Job was created successfully, but automatic skill extraction failed. ${extraction.error} You can retry from the Skill Review page.`
+          );
+          setSuccess("");
+          navigate(
+            `/jobs/${createdJob.id}/skills`
+          );
+          return;
+        }
 
         navigate(
           `/jobs/${createdJob.id}/skills`

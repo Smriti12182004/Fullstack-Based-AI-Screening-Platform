@@ -9,11 +9,13 @@ from fastapi import (
     status,
 )
 from pypdf import PdfReader
+from starlette.responses import Response
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import require_role
+from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
-from app.models import Job, User
+from app.models import Job, JobAssessmentAccess, User
 from app.schemas.job import (
     JobCreate,
     JobDescriptionGenerationRequest,
@@ -45,6 +47,22 @@ router = APIRouter(
 )
 
 
+def _get_assigned_manager_access(
+    db: Session,
+    job_id: int,
+    user_id: int,
+):
+    """Return manager access for a job when it is assigned to them."""
+    return (
+        db.query(JobAssessmentAccess)
+        .filter(
+            JobAssessmentAccess.job_id == job_id,
+            JobAssessmentAccess.user_id == user_id,
+        )
+        .first()
+    )
+
+
 @router.post(
     "",
     response_model=JobResponse,
@@ -55,7 +73,10 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("recruiter")),
 ):
-    user = db.get(User, current_user["user_id"])
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -116,11 +137,15 @@ def upload_job_description(
         ).strip()
     else:
         try:
-            reader = PdfReader(BytesIO(content))
+            reader = PdfReader(
+                BytesIO(content)
+            )
+
             description = "\n".join(
                 page.extract_text() or ""
                 for page in reader.pages
             ).strip()
+
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -139,7 +164,28 @@ def upload_job_description(
             ),
         )
 
-    user = db.get(User, current_user["user_id"])
+    original_document_data = (
+        content
+        if file.content_type == "application/pdf"
+        else None
+    )
+
+    original_document_filename = (
+        file.filename
+        if file.content_type == "application/pdf"
+        else None
+    )
+
+    original_document_content_type = (
+        file.content_type
+        if file.content_type == "application/pdf"
+        else None
+    )
+
+    user = db.get(
+        User,
+        current_user["user_id"],
+    )
 
     if user is None:
         raise HTTPException(
@@ -148,7 +194,10 @@ def upload_job_description(
         )
 
     title = (
-        file.filename.rsplit(".", 1)[0]
+        file.filename.rsplit(
+            ".",
+            1,
+        )[0]
         if file.filename
         else "Uploaded Job"
     )
@@ -157,6 +206,9 @@ def upload_job_description(
         title=title[:255],
         description=description,
         experience_required=None,
+        original_document_data=original_document_data,
+        original_document_filename=original_document_filename,
+        original_document_content_type=original_document_content_type,
         created_by=current_user["user_id"],
     )
 
@@ -167,17 +219,15 @@ def upload_job_description(
     return new_job
 
 
-# ---------------------------------------------------------
-# Generate Job Description from Skills and Experience
-# ---------------------------------------------------------
-
 @router.post(
     "/generate-description",
     response_model=JobDescriptionGenerationResponse,
 )
 def generate_job_description_endpoint(
     request: JobDescriptionGenerationRequest,
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
     try:
         description = generate_job_description(
@@ -218,9 +268,17 @@ def generate_job_description_endpoint(
 def extract_job_skills(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_any_role(
+            "recruiter",
+            "assessment_manager",
+        )
+    ),
 ):
-    job = db.get(Job, job_id)
+    job = db.get(
+        Job,
+        job_id,
+    )
 
     if job is None:
         raise HTTPException(
@@ -228,14 +286,50 @@ def extract_job_skills(
             detail="Job not found",
         )
 
-    if job.created_by != current_user["user_id"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "You are not allowed to extract skills "
-                "for this job."
-            ),
+    role = current_user.get("role")
+    user_id = current_user["user_id"]
+
+    if role == "recruiter":
+
+        if job.created_by != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You are not allowed to extract skills "
+                    "for this job."
+                ),
+            )
+
+    elif role == "assessment_manager":
+
+        access = _get_assigned_manager_access(
+            db=db,
+            job_id=job_id,
+            user_id=user_id,
         )
+
+        if access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You can only extract skills for jobs "
+                    "shared with you by HR."
+                ),
+            )
+
+        review = get_or_create_review(
+            db,
+            job.id,
+        )
+
+        if review.status == "confirmed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "HR has already confirmed the skills for this job. "
+                    "Use the confirmed skills instead of re-extracting them."
+                ),
+            )
 
     try:
         extraction = extract_and_save_job_skills(
@@ -243,8 +337,11 @@ def extract_job_skills(
             job,
         )
 
-        # Every fresh extraction must be reviewed again.
-        review = get_or_create_review(db, job.id)
+        review = get_or_create_review(
+            db,
+            job.id,
+        )
+
         review.status = "pending"
         review.reviewed_by = None
         review.reviewed_at = None
@@ -286,9 +383,14 @@ def extract_job_skills(
 def get_skill_review(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
-    job = db.get(Job, job_id)
+    job = db.get(
+        Job,
+        job_id,
+    )
 
     if job is None:
         raise HTTPException(
@@ -337,9 +439,14 @@ def update_skill_review(
     job_id: int,
     review_data: SkillReviewUpdateSchema,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
-    job = db.get(Job, job_id)
+    job = db.get(
+        Job,
+        job_id,
+    )
 
     if job is None:
         raise HTTPException(
@@ -404,9 +511,14 @@ def update_skill_review(
 def confirm_skill_review(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
-    job = db.get(Job, job_id)
+    job = db.get(
+        Job,
+        job_id,
+    )
 
     if job is None:
         raise HTTPException(
@@ -461,7 +573,9 @@ def confirm_skill_review(
 )
 def get_jobs(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
     user = db.get(
         User,
@@ -479,8 +593,158 @@ def get_jobs(
         .filter(
             Job.created_by == current_user["user_id"]
         )
-        .order_by(Job.created_at.desc())
+        .order_by(
+            Job.created_at.desc()
+        )
         .all()
+    )
+
+
+@router.delete(
+    "/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
+):
+    """Delete a recruiter-owned job.
+
+    The delete is intentionally ownership-scoped. SQLAlchemy/database
+    cascade rules remove job-owned related records where configured.
+    If a dependent assessment still blocks the delete, return a conflict
+    instead of leaving the transaction partially applied.
+    """
+
+    job = (
+        db.query(Job)
+        .filter(
+            Job.id == job_id,
+            Job.created_by == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    try:
+        db.delete(job)
+        db.commit()
+
+    except IntegrityError as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This job cannot be deleted because it is already "
+                "linked to assessment data. Remove or archive the "
+                "dependent assessment first."
+            ),
+        ) from exc
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete the job.",
+        ) from exc
+
+    return None
+
+
+@router.get(
+    "/{job_id}/original-document",
+)
+def get_original_job_document(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_any_role(
+            "recruiter",
+            "assessment_manager",
+        )
+    ),
+):
+    """Return the original uploaded PDF for an authorized job user."""
+
+    job = db.get(
+        Job,
+        job_id,
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    role = current_user.get("role")
+    user_id = current_user["user_id"]
+
+    if role == "recruiter":
+
+        if job.created_by != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You are not allowed to access "
+                    "this job document."
+                ),
+            )
+
+    elif role == "assessment_manager":
+
+        access = _get_assigned_manager_access(
+            db=db,
+            job_id=job_id,
+            user_id=user_id,
+        )
+
+        if access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "This job is not assigned to you."
+                ),
+            )
+
+    if not job.original_document_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "No original PDF is stored for this job."
+            ),
+        )
+
+    filename = (
+        job.original_document_filename
+        or "original-job-description.pdf"
+    ).replace(
+        '"',
+        "",
+    )
+
+    return Response(
+        content=job.original_document_data,
+        media_type=(
+            job.original_document_content_type
+            or "application/pdf"
+        ),
+        headers={
+            "Content-Disposition": (
+                f'inline; filename="{filename}"'
+            ),
+            "Cache-Control": "private, no-store",
+        },
     )
 
 
@@ -491,7 +755,9 @@ def get_jobs(
 def get_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role("recruiter")),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
 ):
     user = db.get(
         User,

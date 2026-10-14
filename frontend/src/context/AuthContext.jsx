@@ -42,6 +42,8 @@ export function AuthProvider({ children }) {
       token_type: data.token_type || "bearer",
       user_id: data.user_id,
       username: data.username || "",
+      full_name: data.full_name || "",
+      email: data.email || "",
       role: data.role,
     };
 
@@ -51,6 +53,23 @@ export function AuthProvider({ children }) {
       "auth",
       JSON.stringify(normalizedAuth)
     );
+  };
+
+  const updateProfile = (profileData) => {
+    if (!auth) {
+      return;
+    }
+
+    const nextAuth = {
+      ...auth,
+      username: profileData.username ?? auth.username,
+      full_name: profileData.full_name ?? auth.full_name,
+      email: profileData.email ?? auth.email,
+    };
+
+    setAuth(nextAuth);
+    localStorage.setItem("auth", JSON.stringify(nextAuth));
+    return nextAuth;
   };
 
   const logout = () => {
@@ -64,6 +83,7 @@ export function AuthProvider({ children }) {
         auth,
         login,
         logout,
+        updateProfile,
         isAuthenticated: Boolean(auth?.access_token),
       }}
     >
