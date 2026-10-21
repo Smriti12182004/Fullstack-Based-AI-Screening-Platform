@@ -1139,11 +1139,27 @@ def _normalize_raw_plan(
         180,
     )
 
+    # Easy conceptual questions should not need a narrative scenario.
+    # The planner prompt explicitly forbids inventing one for this slot type,
+    # but the plan model requires a non-empty context field. Normalize a
+    # minimal, non-scenario context here so a valid conceptual plan is not
+    # discarded solely because the LLM returned an empty scenario_context.
+    is_easy_concept = (
+        _hard_pattern_for_slot(section_type, difficulty) == "concept"
+    )
+    if not scenario_context and is_easy_concept:
+        scenario_context = "Minimal context; direct foundational concept check."
+
     storyline = _normalize_text(
-        raw.get("storyline")
-        or scenario_context,
+        raw.get("storyline"),
         180,
     )
+    if not storyline:
+        storyline = (
+            "Direct foundational conceptual question."
+            if is_easy_concept
+            else scenario_context
+        )
 
     example_context = (
         _normalize_text(

@@ -15,6 +15,7 @@ import {
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import RecruiterLayout from "../layouts/RecruiterLayout";
+import QuestionText from "../components/QuestionText";
 
 const STATUS_LABELS = {
   completed: "Graded",
@@ -1019,9 +1020,10 @@ function QuestionScore({ question, index }) {
           </span>
 
           <div className="min-w-0">
-            <p className="text-sm font-semibold leading-6 text-[#344054]">
-              {question.question_text || `Question ${index + 1}`}
-            </p>
+            <QuestionText
+              text={question.question_text || `Question ${index + 1}`}
+              className="text-sm font-semibold leading-6 text-[#344054]"
+            />
 
             <p className="mt-1 text-[10px] text-[#667085]">
               {question.skill_name || "Unassigned skill"}

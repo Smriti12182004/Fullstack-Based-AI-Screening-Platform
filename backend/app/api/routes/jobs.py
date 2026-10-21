@@ -34,7 +34,7 @@ from app.services.llm_service import (
 from app.services.skill_review_service import (
     SkillReviewError,
     confirm_job_skill_review,
-    get_job_skills,
+    get_job_skill_review_items,
     get_or_create_review,
     update_job_skills,
 )
@@ -264,6 +264,7 @@ def generate_job_description_endpoint(
 @router.post(
     "/{job_id}/skills/extract",
     response_model=SkillExtractionResponseSchema,
+    response_model_exclude_defaults=True,
 )
 def extract_job_skills(
     job_id: int,
@@ -363,12 +364,23 @@ def extract_job_skills(
             ),
         ) from exc
 
+    persisted_skill_metadata = {
+        item["name"].strip().lower(): item
+        for item in get_job_skill_review_items(db, job.id)
+    }
+
     return SkillExtractionResponseSchema(
         job_id=job.id,
         skills=[
             {
                 "name": skill.name,
                 "category": skill.category,
+                "review_category": persisted_skill_metadata.get(
+                    skill.name.strip().lower(), {}
+                ).get("category", "technical"),
+                "is_mandatory": persisted_skill_metadata.get(
+                    skill.name.strip().lower(), {}
+                ).get("is_mandatory", True),
             }
             for skill in extraction.skills
         ],
@@ -412,7 +424,7 @@ def get_skill_review(
         job.id,
     )
 
-    skills = get_job_skills(
+    skill_items = get_job_skill_review_items(
         db,
         job.id,
     )
@@ -420,12 +432,7 @@ def get_skill_review(
     return SkillReviewResponseSchema(
         job_id=job.id,
         status=review.status,
-        skills=[
-            {
-                "name": skill.name,
-            }
-            for skill in skills
-        ],
+        skills=skill_items,
         reviewed_by=review.reviewed_by,
         reviewed_at=review.reviewed_at,
     )
@@ -472,6 +479,10 @@ def update_skill_review(
                 for skill in review_data.skills
             ],
             reviewer_id=current_user["user_id"],
+            skill_metadata=[
+                skill.model_dump()
+                for skill in review_data.skills
+            ],
         )
 
     except SkillReviewError as exc:
@@ -485,7 +496,7 @@ def update_skill_review(
         job.id,
     )
 
-    skills = get_job_skills(
+    skill_items = get_job_skill_review_items(
         db,
         job.id,
     )
@@ -493,12 +504,7 @@ def update_skill_review(
     return SkillReviewResponseSchema(
         job_id=job.id,
         status=review.status,
-        skills=[
-            {
-                "name": skill.name,
-            }
-            for skill in skills
-        ],
+        skills=skill_items,
         reviewed_by=review.reviewed_by,
         reviewed_at=review.reviewed_at,
     )
@@ -548,7 +554,7 @@ def confirm_skill_review(
             detail=str(exc),
         ) from exc
 
-    skills = get_job_skills(
+    skill_items = get_job_skill_review_items(
         db,
         job.id,
     )
@@ -556,12 +562,7 @@ def confirm_skill_review(
     return SkillReviewConfirmResponseSchema(
         job_id=job.id,
         status="confirmed",
-        skills=[
-            {
-                "name": skill.name,
-            }
-            for skill in skills
-        ],
+        skills=skill_items,
         reviewed_by=review.reviewed_by,
         reviewed_at=review.reviewed_at,
     )

@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -23,6 +22,330 @@ import {
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import RecruiterLayout from "../layouts/RecruiterLayout";
+
+const JOB_DESCRIPTION_HEADINGS = [
+  "Responsibilities and Duties",
+  "Preferred Qualifications",
+  "Required Qualifications",
+  "What We're Looking For",
+  "What We’re Looking For",
+  "What We Are Looking For",
+  "What You'll Bring",
+  "What You’ll Bring",
+  "What You Will Bring",
+  "Key Responsibilities",
+  "Professional Experience",
+  "Technical Skills",
+  "Non-Technical Skills",
+  "Nontechnical Skills",
+  "About the Role",
+  "Role Overview",
+  "Role Summary",
+  "Job Summary",
+  "Key Requirements",
+  "Required Skills",
+  "Preferred Skills",
+  "Nice to Have",
+  "What You'll Do",
+  "What You’ll Do",
+  "What You Will Do",
+  "What We Offer",
+  "Key Qualifications",
+  "Qualifications",
+  "Responsibilities",
+  "Requirements",
+  "Education",
+  "Benefits",
+  "Compensation",
+  "About Us",
+  "Overview",
+];
+
+const JOB_DESCRIPTION_HEADING_LOOKUP = new Map(
+  JOB_DESCRIPTION_HEADINGS.map((heading) => [
+    heading.toLowerCase().replace(/[’]/g, "'"),
+    heading.replace(/[’]/g, "'"),
+  ])
+);
+
+function normalizeJobDescriptionText(value) {
+  if (value == null) {
+    return "";
+  }
+
+  let text = String(value)
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .trim();
+
+  if (!text) {
+    return "";
+  }
+
+  // Remove code-fence and horizontal-rule markers without removing their content.
+  text = text
+    .replace(/^\s*```[^\n]*$/gm, "")
+    .replace(/^\s*(?:---+|___+|\*\*\*+)\s*$/gm, "");
+
+  // Render Markdown links as readable text instead of displaying raw syntax.
+  text = text.replace(
+    /!?\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, label, url) => (label === url ? url : `${label} (${url})`)
+  );
+
+  // Remove common inline Markdown markers while preserving the text.
+  text = text
+    .replace(/\*\*([\s\S]+?)\*\*/g, "$1")
+    .replace(/__([\s\S]+?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1$2")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\s+#+\s*$/gm, "");
+
+  // Reintroduce line breaks before common section titles. This also handles
+  // saved JDs where headings and content have been flattened into one line.
+  const escapedHeadings = [...JOB_DESCRIPTION_HEADINGS]
+    .sort((a, b) => b.length - a.length)
+    .map((heading) => heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+  const headingPattern = new RegExp(
+    `\\b(${escapedHeadings.join("|")})\\b\\s*:?[ \\t]*(?=\\S)`,
+    "gi"
+  );
+
+  text = text.replace((headingPattern), (match, heading) => {
+    const canonicalKey = String(heading)
+      .toLowerCase()
+      .replace(/[’]/g, "'");
+
+    const canonicalHeading =
+      JOB_DESCRIPTION_HEADING_LOOKUP.get(canonicalKey) || heading;
+
+    return `\n\n${canonicalHeading}\n`;
+  });
+
+  // Turn inline bullets into separate list rows.
+  text = text
+    .replace(/\s*[•·]\s*/g, "\n• ")
+    .replace(/(^|\n)\s*[-*+]\s+/gm, "$1• ")
+    .replace(/([.!?;])\s+[-*+]\s+(?=\S)/g, "$1\n• ")
+    .replace(/(^|\n)\s*(\d+)[.)]\s+/gm, "$1$2. ");
+
+  // Remove Markdown table-divider rows and make remaining cells readable.
+  text = text
+    .split("\n")
+    .filter(
+      (line) =>
+        !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)
+    )
+    .map((line) => {
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+        return trimmed
+          .slice(1, -1)
+          .split("|")
+          .map((cell) => cell.trim())
+          .filter(Boolean)
+          .join(" — ");
+      }
+
+      return line.trimEnd();
+    })
+    .join("\n");
+
+  return text
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function parseJobDescription(value) {
+  const normalizedText = normalizeJobDescriptionText(value);
+
+  if (!normalizedText) {
+    return [];
+  }
+
+  const lines = normalizedText.split("\n");
+  const blocks = [];
+
+  let paragraphLines = [];
+  let listItems = [];
+  let listType = null;
+
+  const flushParagraph = () => {
+    const paragraph = paragraphLines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    if (paragraph) {
+      blocks.push({
+        type: "paragraph",
+        text: paragraph,
+      });
+    }
+
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (listItems.length) {
+      blocks.push({
+        type: listType || "ul",
+        items: listItems,
+      });
+    }
+
+    listItems = [];
+    listType = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const normalizedHeading = line
+      .replace(/:$/, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[’]/g, "'");
+
+    const heading = JOB_DESCRIPTION_HEADING_LOOKUP.get(
+      normalizedHeading
+    );
+
+    if (heading) {
+      flushParagraph();
+      flushList();
+
+      blocks.push({
+        type: "heading",
+        text: heading,
+      });
+
+      continue;
+    }
+
+    const bulletMatch = line.match(/^•\s*(.+)$/);
+
+    if (bulletMatch) {
+      flushParagraph();
+
+      if (listType && listType !== "ul") {
+        flushList();
+      }
+
+      listType = "ul";
+      listItems.push(bulletMatch[1].trim());
+      continue;
+    }
+
+    const numberedMatch = line.match(/^\d+[.)]\s+(.+)$/);
+
+    if (numberedMatch) {
+      flushParagraph();
+
+      if (listType && listType !== "ol") {
+        flushList();
+      }
+
+      listType = "ol";
+      listItems.push(numberedMatch[1].trim());
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return blocks;
+}
+
+function JobDescriptionContent({ value }) {
+  const blocks = parseJobDescription(value);
+
+  if (!blocks.length) {
+    return (
+      <p className="text-sm leading-7 text-[#7B8794]">
+        No job description is available.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-5 break-words text-sm leading-7 text-[#4F5F70]">
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          return (
+            <h3
+              key={`heading-${index}`}
+              className="border-b border-[#EEF0F3] pb-2 text-[12px] font-bold uppercase tracking-[0.1em] text-[#344054] first:mt-0"
+            >
+              {block.text}
+            </h3>
+          );
+        }
+
+        if (block.type === "ul") {
+          return (
+            <ul
+              key={`list-${index}`}
+              className="list-disc space-y-2 pl-5 marker:text-[#7A61D8]"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li
+                  key={`item-${index}-${itemIndex}`}
+                  className="pl-1 leading-7"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          );
+        }
+
+        if (block.type === "ol") {
+          return (
+            <ol
+              key={`ordered-${index}`}
+              className="list-decimal space-y-2 pl-5 marker:font-semibold marker:text-[#7A61D8]"
+            >
+              {block.items.map((item, itemIndex) => (
+                <li
+                  key={`ordered-item-${index}-${itemIndex}`}
+                  className="pl-1 leading-7"
+                >
+                  {item}
+                </li>
+              ))}
+            </ol>
+          );
+        }
+
+        return (
+          <p
+            key={`paragraph-${index}`}
+            className="whitespace-pre-line leading-7 text-[#4F5F70]"
+          >
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 function JobDetails() {
   const { jobId } = useParams();
@@ -206,6 +529,7 @@ function JobDetails() {
     loadJob();
     loadCollaboration();
     loadActivity();
+
     // Load these records again when the selected job changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
@@ -526,8 +850,7 @@ function JobDetails() {
                   </h1>
 
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-[#667085]">
-                    Review the role, collaboration assignments,
-                    and workflow activity for this job.
+                    Review the role, collaboration assignments, and workflow activity for this job.
                   </p>
                 </div>
 
@@ -744,9 +1067,7 @@ function JobDetails() {
                 </p>
               </div>
 
-              <div className="whitespace-pre-wrap break-words text-sm leading-8 text-[#4F5F70]">
-                {job?.description || "No job description is available."}
-              </div>
+              <JobDescriptionContent value={job?.description} />
             </div>
           </article>
 

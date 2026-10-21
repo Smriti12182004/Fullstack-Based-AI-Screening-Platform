@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import Job, JobSkill, JobSkillReview, Skill
+
+
+VALID_SKILL_CATEGORIES = {"technical", "non_technical"}
 
 
 class SkillReviewError(Exception):
@@ -50,20 +54,63 @@ def get_job_skills(
     )
 
 
+def get_job_skill_review_items(
+    db: Session,
+    job_id: int,
+) -> list[dict[str, Any]]:
+    """Return skill names plus the per-job classification and requirement."""
+    rows = (
+        db.query(JobSkill, Skill)
+        .join(Skill, Skill.id == JobSkill.skill_id)
+        .filter(JobSkill.job_id == job_id)
+        .order_by(Skill.name)
+        .all()
+    )
+
+    return [
+        {
+            "name": skill.name,
+            "category": (
+                link.category
+                if link.category in VALID_SKILL_CATEGORIES
+                else "technical"
+            ),
+            "is_mandatory": bool(link.is_mandatory),
+        }
+        for link, skill in rows
+    ]
+
+
 def update_job_skills(
     db: Session,
     job: Job,
     skill_names: list[str],
     reviewer_id: int,
+    skill_metadata: list[dict[str, Any]] | None = None,
 ) -> list[Skill]:
-    """
-    Replace the job's current skill list with the recruiter's edited list.
+    """Replace a job's skill list and persist each skill's recruiter decisions.
 
-    Editing a confirmed review returns it to pending so that the recruiter
-    must explicitly confirm the updated skill scope again.
+    ``skill_metadata`` is optional for backward compatibility with callers that
+    still submit only names. Those entries default to Technical + Mandatory.
+    Saving an edited skill list returns a previously confirmed review to pending.
     """
     normalized_names: list[str] = []
     seen: set[str] = set()
+
+    metadata_by_name: dict[str, dict[str, Any]] = {}
+    for item in skill_metadata or []:
+        raw_name = str(item.get("name") or "")
+        normalized_name = " ".join(raw_name.strip().lower().split())
+        if normalized_name and normalized_name not in metadata_by_name:
+            category = str(item.get("category") or "technical").strip().lower()
+            metadata_by_name[normalized_name] = {
+                "category": (
+                    category
+                    if category in VALID_SKILL_CATEGORIES
+                    else "technical"
+                ),
+                "is_mandatory": bool(item.get("is_mandatory", True)),
+            }
 
     for name in skill_names:
         normalized_name = " ".join(name.strip().lower().split())
@@ -106,10 +153,20 @@ def update_job_skills(
                 db.add(skill)
                 db.flush()
 
+            metadata = metadata_by_name.get(
+                skill_name,
+                {
+                    "category": "technical",
+                    "is_mandatory": True,
+                },
+            )
+
             db.add(
                 JobSkill(
                     job_id=job.id,
                     skill_id=skill.id,
+                    category=metadata["category"],
+                    is_mandatory=metadata["is_mandatory"],
                 )
             )
 
@@ -160,9 +217,7 @@ def are_job_skills_confirmed(
     db: Session,
     job_id: int,
 ) -> bool:
-    """
-    Return True only when the job has an explicitly confirmed skill review.
-    """
+    """Return True only when the job has an explicitly confirmed skill review."""
     review = (
         db.query(JobSkillReview)
         .filter(JobSkillReview.job_id == job_id)

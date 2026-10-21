@@ -58,6 +58,44 @@ def _parse_event_details(value: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _summarize_proctoring_events(events: list[AuditEvent]) -> dict[str, int]:
+    """Group browser monitoring events into readable, non-judgmental categories."""
+    summary = {
+        "focus_visibility": 0,
+        "fullscreen": 0,
+        "clipboard_context": 0,
+        "other": 0,
+    }
+
+    focus_events = {"tab_hidden", "window_blur"}
+    fullscreen_events = {
+        "fullscreen_exit",
+        "fullscreen_unavailable",
+        "fullscreen_required",
+    }
+    clipboard_events = {
+        "copy_attempt",
+        "cut_attempt",
+        "paste_attempt",
+        "context_menu",
+        "contextmenu",
+    }
+
+    for event in events:
+        event_type = event.action.removeprefix("proctor_").lower()
+
+        if event_type in focus_events:
+            summary["focus_visibility"] += 1
+        elif event_type in fullscreen_events:
+            summary["fullscreen"] += 1
+        elif event_type in clipboard_events:
+            summary["clipboard_context"] += 1
+        else:
+            summary["other"] += 1
+
+    return summary
+
+
 def _load_visible_activity_records(
     db: Session,
     current_user: dict,
@@ -343,6 +381,7 @@ def _serialize_activity_record(record: dict) -> dict:
             if latest_event
             else None
         ),
+        "event_summary": _summarize_proctoring_events(record["events"]),
     }
 
 

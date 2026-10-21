@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  Eye,
   LoaderCircle,
   LogOut,
   Send,
@@ -16,6 +17,7 @@ import {
 
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
+import QuestionText from "../components/QuestionText";
 
 const FOCUS_EVENT_DEDUP_MS = 1200;
 const SAME_EVENT_DEDUP_MS = 700;
@@ -876,7 +878,7 @@ function CandidateAssessment() {
 
                 <div className="flex items-center gap-2 rounded-xl border border-[#E2E1FC] bg-[#F4F3FF] px-3 py-2 text-xs font-semibold text-[#5658E8]">
                   <ShieldCheck size={16} />
-                  Basic monitoring active
+                  Browser monitoring active
                 </div>
               </div>
 
@@ -922,7 +924,7 @@ function CandidateAssessment() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-sm font-bold text-[#26284F]">
-                      Proctoring warnings
+                      Recorded monitoring events
                     </h2>
 
                     <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-[#EAE8FF] px-2.5 py-1 text-xs font-bold text-[#5658E8]">
@@ -931,10 +933,21 @@ function CandidateAssessment() {
                   </div>
 
                   <p className="mt-1 text-xs leading-5 text-[#737B93]">
-                    This count is saved for the current attempt. Detected
-                    actions are recorded for review; a warning by itself
-                    does not prove misconduct.
+                    Events are saved for this attempt and made available to
+                    authorized reviewers. A recorded signal is context for
+                    review, not proof of misconduct.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-[#D9E7E2] bg-white px-2.5 py-1 text-[10px] font-medium text-[#536A64]">
+                      Tab &amp; window focus
+                    </span>
+                    <span className="rounded-full border border-[#D9E7E2] bg-white px-2.5 py-1 text-[10px] font-medium text-[#536A64]">
+                      Fullscreen changes
+                    </span>
+                    <span className="rounded-full border border-[#D9E7E2] bg-white px-2.5 py-1 text-[10px] font-medium text-[#536A64]">
+                      Copy / cut / paste attempts
+                    </span>
+                  </div>
 
                   {monitoringSyncError && (
                     <p
@@ -983,9 +996,10 @@ function CandidateAssessment() {
                         </span>
                       </div>
 
-                      <h2 className="mt-3 whitespace-pre-wrap text-lg font-semibold leading-7 text-[#26284F]">
-                        {question.question_text}
-                      </h2>
+                      <QuestionText
+                        text={question.question_text}
+                        className="mt-3 text-lg font-semibold leading-7 text-[#26284F]"
+                      />
 
                       {isMcq && options.length > 0 ? (
                         <div className="mt-5 space-y-3">
@@ -1150,46 +1164,75 @@ function CandidateAssessment() {
               </div>
             )}
 
-            <div className="mt-6 rounded-2xl border border-[#DEDDF8] bg-[#F7F6FF] p-5">
-              <div className="flex items-start gap-3">
-                <ShieldAlert
-                  size={20}
-                  className="mt-0.5 shrink-0 text-[#5658E8]"
-                />
-
-                <div>
-                  <h2 className="font-bold text-[#26284F]">
-                    Before you start
+            <section className="mt-6 overflow-hidden rounded-2xl border border-[#D9E6E1] bg-white">
+              <div className="flex items-start gap-3 bg-[#F5F9F7] p-5 sm:p-6">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E2F0EB] text-[#17655E]">
+                  <ShieldCheck size={19} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#17655E]">
+                    Assessment integrity
+                  </p>
+                  <h2 className="mt-1 text-lg font-bold text-[#263B36]">
+                    What this assessment monitors
                   </h2>
-
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-[#555D79]">
-                    <li>
-                      Make sure you have enough uninterrupted time and a
-                      stable connection.
-                    </li>
-                    <li>
-                      Keep the assessment tab and browser window active.
-                    </li>
-                    <li>
-                      Fullscreen must be enabled before the timed attempt
-                      starts.
-                    </li>
-                    <li>
-                      Detected monitoring events may trigger visible warnings
-                      and be available to authorized HR staff.
-                    </li>
-                    <li>
-                      Monitoring does not record webcam video or clipboard
-                      contents.
-                    </li>
-                    <li>
-                      Once started, the timer continues even if you refresh
-                      the page.
-                    </li>
-                  </ul>
+                  <p className="mt-1.5 max-w-3xl text-sm leading-6 text-[#647570]">
+                    Evalyn records a limited set of browser events while your timed attempt is active. The events can be reviewed by authorized assessment staff.
+                  </p>
                 </div>
               </div>
-            </div>
+
+              <div className="grid gap-3 border-b border-[#E9EFEC] p-4 sm:grid-cols-3 sm:p-5">
+                <div className="rounded-xl border border-[#E1EBE7] bg-white p-3.5">
+                  <div className="flex items-center gap-2 text-[#17655E]">
+                    <Eye size={15} />
+                    <h3 className="text-xs font-bold">Focus &amp; visibility</h3>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-[#71807B]">
+                    Tab visibility changes and assessment-window focus loss.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-[#E1EBE7] bg-white p-3.5">
+                  <div className="flex items-center gap-2 text-[#17655E]">
+                    <ShieldCheck size={15} />
+                    <h3 className="text-xs font-bold">Fullscreen</h3>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-[#71807B]">
+                    Fullscreen exits are recorded, and fullscreen must be restored before continuing.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-[#E1EBE7] bg-white p-3.5">
+                  <div className="flex items-center gap-2 text-[#17655E]">
+                    <ClipboardCheck size={15} />
+                    <h3 className="text-xs font-bold">Clipboard actions</h3>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-[#71807B]">
+                    Copy, cut, paste, and context-menu attempts are recorded as events only.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-5 sm:p-6">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={17} className="mt-0.5 shrink-0 text-[#A8752B]" />
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold text-[#34433F]">
+                      Before you start
+                    </h3>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-5 text-xs leading-5 text-[#697A75]">
+                      <li>Choose a place where you can work without interruption and keep a stable connection.</li>
+                      <li>Keep this assessment tab and browser window active. Fullscreen must be enabled before the timer starts.</li>
+                      <li>The timer continues if you refresh the page after the attempt has started.</li>
+                    </ul>
+                    <p className="mt-3 rounded-lg bg-[#F6F8F7] px-3 py-2.5 text-[11px] leading-5 text-[#6B7975]">
+                      Privacy note: this browser monitoring does not capture webcam video, record the screen, or save clipboard contents. Events are signals for human review and do not independently establish misconduct.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button

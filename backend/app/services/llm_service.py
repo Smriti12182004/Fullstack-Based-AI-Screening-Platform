@@ -689,7 +689,7 @@ Important:
 
 MAX_GENERATED_QUESTIONS = 20
 MIN_GENERATED_QUESTIONS = 1
-MAX_QUESTION_TEXT_LENGTH = 1000
+MAX_QUESTION_TEXT_LENGTH = 4000
 MAX_OPTION_LENGTH = 500
 MAX_EXPLANATION_LENGTH = 2000
 
@@ -881,6 +881,139 @@ def _difficulty_generation_guidance(difficulty: str) -> str:
     }[difficulty]
 
 
+def _normalize_question_text_for_storage(value: str | None) -> str:
+    """Normalize prose while preserving Markdown, code fences and indentation.
+
+    Older LLM outputs sometimes flatten Markdown headings and example labels into
+    one paragraph. This repairs those known labels without collapsing whitespace
+    inside code blocks, where indentation and newlines can change program behavior.
+    """
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+
+    # Put opening and closing fences on separate lines when older model output
+    # placed them inline with prose/code (e.g. "prompt ```python print(1) ```").
+    text = re.sub(r"(?<!\n)```", "\n```", text)
+    text = re.sub(
+        r"```([A-Za-z0-9_+#.-]+)[ \t]+(?=\S)",
+        r"```\1\n",
+        text,
+    )
+
+    def clean_heading(match: re.Match[str]) -> str:
+        label = re.sub(r"\s+", " ", match.group(2)).strip()
+        return f"{match.group(1).rstrip()}\n\n### {label}\n"
+
+    def normalize_prose(part: str) -> str:
+        part = re.sub(
+            r"(^|[ \t])#{1,6}[ \t]*(Problem Statement|Problem|Your Task|Function Signature|Example[ \t]+\d+|Examples|Constraints|Code Snippet|Given Code|Input Format|Output Format|Notes?)[ \t]*:?[ \t]*",
+            clean_heading,
+            part,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        part = re.sub(
+            r"(^|[ \t]+)(Example[ \t]+\d+|Constraints|Problem Statement|Function Signature|Code Snippet|Given Code|Input Format|Output Format|Notes?)[ \t]*:[ \t]*",
+            clean_heading,
+            part,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        part = re.sub(
+            r"(?<!\S)(Input|Output|Explanation)[ \t]*:[ \t]*",
+            lambda match: f"\n{match.group(1).title()}: ",
+            part,
+            flags=re.IGNORECASE,
+        )
+        # Separate flattened constraint bullets without destroying negative signs.
+        part = re.sub(
+            r"(?<=[.!?\]])[ \t]+-[ \t]+(?=(?:-?\d+\s*(?:<=|>=|==|<|>|!=)|[A-Z]))",
+            r"\n- ",
+            part,
+        )
+        return part
+
+    parts = re.split(r"(```[\s\S]*?```)", text)
+    for index in range(0, len(parts), 2):
+        parts[index] = normalize_prose(parts[index])
+
+    text = "".join(parts)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _has_fenced_code_snippet(question_text: str | None) -> bool:
+    """Return true when question text contains a non-empty fenced code block."""
+    text = str(question_text or "")
+    return bool(re.search(r"(?ms)^\s*```[A-Za-z0-9_+#.-]+\s*\n.+?^\s*```\s*$", text))
+
+
+def _code_generation_requirements(
+    focus: str,
+    manager_prompt: str | None,
+    variation_instruction: str | None,
+) -> tuple[bool, bool, str]:
+    """Determine whether the current request explicitly requires a code snippet."""
+    guidance = " ".join(str(part or "") for part in (manager_prompt, variation_instruction)).casefold()
+    output_phrases = (
+        "generate output-prediction questions",
+        "generate output prediction questions",
+        "create output-prediction questions",
+        "create output prediction questions",
+        "only output-prediction questions",
+        "only output prediction questions",
+        "predict the output",
+        "predict output",
+        "what is the output",
+        "what will this print",
+        "what does this return",
+        "focus on output prediction",
+        "focus on output-prediction",
+    )
+    code_phrases = (
+        "code snippet", "code snippets", "coding question", "coding questions",
+        "code-based", "code based", "snippet-based", "snippet based",
+        "read the code", "trace the code",
+    )
+    output_required = focus == "output" or any(phrase in guidance for phrase in output_phrases)
+    code_required = (
+        focus in {"code", "output", "debugging"}
+        or output_required
+        or any(phrase in guidance for phrase in code_phrases)
+    )
+
+    if output_required:
+        instructions = """
+OUTPUT-PREDICTION QUESTION — REQUIRED FORMAT
+- Include a complete, relevant, multi-line code snippet in question_text inside a Markdown fenced code block.
+- Use a language tag matching the selected skill, e.g. ```python, ```javascript, ```typescript, ```java, ```cpp, ```csharp, ```go, ```ruby, ```php, or ```sql.
+- Preserve syntax, indentation, blank lines, variable names and operators; never flatten code into prose.
+- Explicitly ask the candidate to determine the exact output, printed value, return value or resulting query rows, and explain why.
+- Do not reveal the answer in question_text. For MCQ, provide answer choices in options and put the correct choice only in correct_answer. For FREE_TEXT, use options=[] and correct_answer=null; keep evaluation guidance in the separate explanation field.
+- For SQL, include the relevant schema and sample rows, then ask for the query result.
+- Make the snippet self-contained so the answer can be determined without guessing.
+""".strip()
+    elif code_required:
+        instructions = """
+CODE-BASED QUESTION — REQUIRED FORMAT
+- Include relevant code in question_text inside a Markdown fenced code block with the correct language tag.
+- Use a LeetCode-inspired structure where appropriate: a clear problem statement, code or function signature, Examples with separate Input / Output / Explanation labels, and Constraints as a separate list.
+- Preserve multi-line code, indentation, syntax and line breaks; never flatten code into prose.
+- For debugging, include the faulty or incomplete snippet and ask for the root cause or best fix. For implementation tasks, state expected behavior and meaningful constraints.
+- If this question asks the candidate to predict output, include the actual code snippet and ask for the exact result; never ask a prediction question without code.
+- Do not include the solution in question_text.
+""".strip()
+    else:
+        instructions = """
+FORMATTING
+- Use short paragraphs and Markdown headings when they improve readability.
+- If the question contains code, SQL, commands, configuration or a function signature, use a language-labelled fenced code block and preserve indentation.
+- Do not flatten examples, inputs, outputs or constraints into one paragraph.
+""".strip()
+
+    return code_required, output_required, instructions
+
+
 def _validate_generated_question(
     question: GeneratedQuestion,
     allowed_skills: dict[str, QuestionGenerationRequestContext],
@@ -889,7 +1022,7 @@ def _validate_generated_question(
     requested_question_type: str | None = None,
 ) -> GeneratedQuestion:
     """Validate and normalize one generated question."""
-    normalized_text = " ".join(question.question_text.strip().split())
+    normalized_text = _normalize_question_text_for_storage(question.question_text)
 
     if not normalized_text:
         raise LLMResponseError(
@@ -2516,6 +2649,18 @@ def generate_questions_from_skills(
     if normalized_section_type == "conceptual" and normalized_difficulty == "easy":
         normalized_focus = "concept"
 
+    # A hard slot pattern (currently Easy + Conceptual) takes precedence over
+    # generic manager style preferences; do not force code into that slot.
+    effective_style_prompt = None if hard_pattern is not None else normalized_manager_prompt
+    effective_variation_instruction = None if hard_pattern is not None else variation_instruction
+    requires_code_snippet, requires_output_prediction, code_format_guidance = (
+        _code_generation_requirements(
+            normalized_focus,
+            effective_style_prompt,
+            effective_variation_instruction,
+        )
+    )
+
     easy_conceptual_guardrail = ""
     if normalized_section_type == "conceptual" and normalized_difficulty == "easy" and normalized_focus == "concept":
         easy_conceptual_guardrail = """
@@ -2826,6 +2971,9 @@ STRUCTURED MANAGER INTERPRETATION
 QUESTION PATTERN
 {focus_context}
 
+CODE AND DISPLAY FORMAT REQUIREMENTS
+{code_format_guidance}
+
 GENERATION STRATEGY
 {strategy_context}
 
@@ -2907,6 +3055,8 @@ Manager interpretation: {manager_guidance_context or "Follow the manager request
 Question plan: {generation_plan_context or "No separate question plan was supplied; choose a genuinely different target."}
 {generation_plan_repair}
 Question pattern: {focus_context}
+Code/display requirements:
+{code_format_guidance}
 {easy_conceptual_guardrail}
 For Easy Conceptual questions, do not add a scenario merely to avoid a direct question; keep the stem short and foundational.
 Do not fall back to a generic definition/purpose question when the manager explicitly requested scenario, troubleshooting, comparison or applied reasoning.
@@ -2933,7 +3083,7 @@ Create a different knowledge target from previous attempts.
                 temperature=0.55 if regeneration_mode else 0.40,
                 timeout=GROQ_QUESTION_TIMEOUT_SECONDS,
                 reasoning_effort="low",
-                max_completion_tokens=900,
+                max_completion_tokens=1500 if requires_code_snippet else 900,
             )
 
             parsed_data = _extract_json_payload(raw_text)
@@ -3069,6 +3219,22 @@ Create a different knowledge target from previous attempts.
 
         for generated_question in normalized_questions:
             try:
+                candidate_text = _normalize_question_text_for_storage(
+                    generated_question.question_text
+                )
+                if requires_code_snippet and not _has_fenced_code_snippet(candidate_text):
+                    raise LLMResponseError(
+                        "Generated coding question did not include a non-empty Markdown fenced code block."
+                    )
+                if requires_output_prediction and not re.search(
+                    r"\b(output|print(?:ed|s)?|return(?:s|ed)?|result|query result)\b",
+                    candidate_text,
+                    flags=re.IGNORECASE,
+                ):
+                    raise LLMResponseError(
+                        "Generated output-prediction question did not explicitly ask about the code's output or result."
+                    )
+
                 if not _matches_generation_focus(generated_question, normalized_focus, normalized_section_type):
                     raise LLMResponseError(
                         f"Generated question did not follow the requested {normalized_focus} question focus."

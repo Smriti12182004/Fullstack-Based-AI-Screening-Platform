@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  ArrowRight,
   Bot,
   Check,
   CheckCircle2,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 
 import api from "../services/api";
+import QuestionText from "../components/QuestionText";
 import { useAuth } from "../context/AuthContext";
 import RecruiterLayout from "../layouts/RecruiterLayout";
 
@@ -46,6 +48,85 @@ const SECTION_TYPE_DESCRIPTIONS = {
     "Assess how candidates explain, design, debug and justify solutions using their own response.",
 };
 
+// A restrained, persistent color system distinguishes section types without
+// relying on decorative hover animations or top-of-card color strips.
+function getQuestionIndexPreview(value) {
+  return String(value || "")
+    .replace(/```[A-Za-z0-9_+#.-]*\s*/g, "")
+    .replace(/```/g, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const QUESTION_SECTION_TONES = {
+  conceptual: {
+    // Neutral surfaces are the default. Section color is confined to small labels.
+    sectionHeader: "border-[#E3E7EE] bg-white",
+    sectionLetter: "bg-[#ECE8FF] text-[#5B4BB7]",
+    sectionEyebrow: "text-[#7464C1]",
+    sectionType: "border-[#E3DDF8] bg-[#FAF9FF] text-[#5B4BB7]",
+    preparedBadge: "bg-[#F1EEFF] text-[#5B4BB7]",
+    cardBorder: "border-[#E0E5EC]",
+    cardBackground: "bg-white",
+    numberBadge: "border-[#E0E5EC] bg-[#F7F8FA] text-[#536273]",
+    difficultyBadge: "bg-[#F1EEFF] text-[#5B4BB7]",
+    skillPanel: "border-[#E4E8EF] bg-[#FAFBFC]",
+    skillSelect: "border-[#D9DFE8] bg-white",
+    helperText: "text-[#758195]",
+    questionPanel: "border-[#E6EAF0] bg-white",
+    emptyBorder: "border-[#DDE3EB]",
+    emptyBackground: "bg-[#FAFBFC]",
+    emptyTitle: "text-[#344054]",
+    emptyText: "text-[#7B8794]",
+  },
+  implementation: {
+    sectionHeader: "border-[#E3E7EE] bg-white",
+    sectionLetter: "bg-[#DDF3EA] text-[#147564]",
+    sectionEyebrow: "text-[#277D6D]",
+    sectionType: "border-[#D3EAE1] bg-[#F7FCF9] text-[#147564]",
+    preparedBadge: "bg-[#E8F6F0] text-[#147564]",
+    cardBorder: "border-[#E0E5EC]",
+    cardBackground: "bg-white",
+    numberBadge: "border-[#E0E5EC] bg-[#F7F8FA] text-[#536273]",
+    difficultyBadge: "bg-[#E8F6F0] text-[#147564]",
+    skillPanel: "border-[#E4E8EF] bg-[#FAFBFC]",
+    skillSelect: "border-[#D9DFE8] bg-white",
+    helperText: "text-[#758195]",
+    questionPanel: "border-[#E6EAF0] bg-white",
+    emptyBorder: "border-[#DDE3EB]",
+    emptyBackground: "bg-[#FAFBFC]",
+    emptyTitle: "text-[#344054]",
+    emptyText: "text-[#7B8794]",
+  },
+  free_text: {
+    sectionHeader: "border-[#E3E7EE] bg-white",
+    sectionLetter: "bg-[#FBE8F0] text-[#A34E79]",
+    sectionEyebrow: "text-[#A34E79]",
+    sectionType: "border-[#F0DDE6] bg-[#FFFAFC] text-[#A34E79]",
+    preparedBadge: "bg-[#FBF0F5] text-[#A34E79]",
+    cardBorder: "border-[#E0E5EC]",
+    cardBackground: "bg-white",
+    numberBadge: "border-[#E0E5EC] bg-[#F7F8FA] text-[#536273]",
+    difficultyBadge: "bg-[#FBF0F5] text-[#A34E79]",
+    skillPanel: "border-[#E4E8EF] bg-[#FAFBFC]",
+    skillSelect: "border-[#D9DFE8] bg-white",
+    helperText: "text-[#758195]",
+    questionPanel: "border-[#E6EAF0] bg-white",
+    emptyBorder: "border-[#DDE3EB]",
+    emptyBackground: "bg-[#FAFBFC]",
+    emptyTitle: "text-[#344054]",
+    emptyText: "text-[#7B8794]",
+  },
+};
+
+function getQuestionSectionTone(sectionType) {
+  const key = String(sectionType || "conceptual").toLowerCase();
+  return QUESTION_SECTION_TONES[key] || QUESTION_SECTION_TONES.conceptual;
+}
+
 function ManagerAssessmentSets() {
   const { questionSetId } = useParams();
   const navigate = useNavigate();
@@ -54,12 +135,15 @@ function ManagerAssessmentSets() {
   const [workspace, setWorkspace] = useState(null);
   const [activeSetId, setActiveSetId] = useState(null);
   const [expandedSections, setExpandedSections] = useState({});
+  const [expandedIndexSectionId, setExpandedIndexSectionId] = useState();
+  const pendingQuestionNavigationRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   const [generatingSlotId, setGeneratingSlotId] = useState(null);
+  const [generationStartedAt, setGenerationStartedAt] = useState(null);
   const [acceptingAttemptId, setAcceptingAttemptId] = useState(null);
   const [restoringAttemptId, setRestoringAttemptId] = useState(null);
   const [ratingQuestionId, setRatingQuestionId] = useState(null);
@@ -149,50 +233,54 @@ function ManagerAssessmentSets() {
         setLoading(true);
       }
 
+      // The main authoring workspace is required for the page to render.
+      // Bound the request so a slow or unreachable API fails visibly instead
+      // of leaving the page on the loading spinner indefinitely.
       const response = await api.get(
-        `/assessment-authoring/question-sets/${questionSetId}`
+        `/assessment-authoring/question-sets/${questionSetId}`,
+        { timeout: 15000 }
       );
 
       const data = response.data;
 
       setWorkspace(data);
 
-      // Load any candidate-facing Assessment records already materialized
-      // for this QuestionSet. This is intentionally best-effort so the
-      // existing authoring workspace is never blocked by this new lifecycle
-      // lookup.
-      try {
-        const assessmentResponse = await api.get(
-          `/assessments/question-set/${questionSetId}/variants`
-        );
+      // Candidate-facing assessment variants are optional metadata. Fetch
+      // them in the background: do not await this call, because an unrelated
+      // slow endpoint must never block the question-authoring workspace.
+      void api
+        .get(`/assessments/question-set/${questionSetId}/variants`, {
+          timeout: 5000,
+        })
+        .then((assessmentResponse) => {
+          const assessmentRows = Array.isArray(
+            assessmentResponse.data
+          )
+            ? assessmentResponse.data
+            : [];
 
-        const assessmentRows = Array.isArray(
-          assessmentResponse.data
-        )
-          ? assessmentResponse.data
-          : [];
+          const assessmentMap = {};
 
-        const assessmentMap = {};
+          for (const assessment of assessmentRows) {
+            const matchingSet = (data?.sets || []).find(
+              (assessmentSet) =>
+                Number(assessmentSet?.variant_number) ===
+                Number(assessment?.variant_number)
+            );
 
-        for (const assessment of assessmentRows) {
-          const matchingSet = (data?.sets || []).find(
-            (assessmentSet) =>
-              Number(assessmentSet?.variant_number) ===
-              Number(assessment?.variant_number)
-          );
-
-          if (matchingSet?.id != null) {
-            assessmentMap[matchingSet.id] = assessment;
+            if (matchingSet?.id != null) {
+              assessmentMap[matchingSet.id] = assessment;
+            }
           }
-        }
 
-        setMaterializedAssessments(assessmentMap);
-      } catch (assessmentErr) {
-        console.warn(
-          "Unable to load candidate-facing assessment variants:",
-          assessmentErr
-        );
-      }
+          setMaterializedAssessments(assessmentMap);
+        })
+        .catch((assessmentErr) => {
+          console.warn(
+            "Unable to load candidate-facing assessment variants:",
+            assessmentErr
+          );
+        });
 
       const firstSet = Array.isArray(data?.sets) ? data.sets[0] : null;
 
@@ -372,6 +460,25 @@ function ManagerAssessmentSets() {
       [sectionId]: current[sectionId] === false,
     }));
   };
+
+  const navigateToQuestion = (sectionId, slotId) => {
+    pendingQuestionNavigationRef.current = slotId;
+    setExpandedSections((current) => ({
+      ...current,
+      [sectionId]: true,
+    }));
+  };
+
+  useEffect(() => {
+    const slotId = pendingQuestionNavigationRef.current;
+    if (slotId == null) return;
+
+    const target = document.getElementById(`question-slot-${slotId}`);
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    pendingQuestionNavigationRef.current = null;
+  }, [expandedSections]);
 
   const updateWorkspaceSlot = (
     currentWorkspace,
@@ -1091,6 +1198,7 @@ function ManagerAssessmentSets() {
       setError("");
       setSuccess("");
       setGeneratingSlotId(slot.id);
+      setGenerationStartedAt(Date.now());
 
       const response = await api.post(
         `/assessment-authoring/slots/${slot.id}/generate-batch?count=${normalizedCount}`,
@@ -1162,6 +1270,7 @@ function ManagerAssessmentSets() {
       );
     } finally {
       setGeneratingSlotId(null);
+      setGenerationStartedAt(null);
     }
   };
 
@@ -2266,6 +2375,158 @@ function ManagerAssessmentSets() {
           </span>
         </section>
 
+        {activeSet && (
+          <nav
+            aria-label="Question index for selected set"
+            className="mt-4 rounded-xl border border-[#DDD8F2] bg-white shadow-[0_4px_16px_rgba(16,24,40,0.04)]"
+          >
+            <div className="flex flex-col gap-2 border-b border-[#EEF0F3] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-xs font-bold text-[#202938]">Question index</h2>
+                <p className="mt-1 text-[10px] text-[#667085]">
+                  Select a question to jump to its editor. Expand a section to preview its questions.
+                </p>
+              </div>
+              <span className="inline-flex w-fit shrink-0 items-center rounded-full bg-[#F5F3FF] px-2.5 py-1 text-[10px] font-semibold text-[#5146B2]">
+                {activeSetSlots.length} {activeSetSlots.length === 1 ? "question" : "questions"}
+              </span>
+            </div>
+
+            {sections.some((section) => getSlotsForSection(section.id).length > 0) ? (
+              <div className="divide-y divide-[#EEF0F3] px-3 sm:px-4">
+                {sections.map((section, sectionIndex) => {
+                  const sectionSlots = getSlotsForSection(section.id);
+                  if (sectionSlots.length === 0) return null;
+
+                  const indexExpanded =
+                    expandedIndexSectionId === undefined
+                      ? sectionIndex === 0
+                      : expandedIndexSectionId === section.id;
+                  const preparedCount = sectionSlots.filter(
+                    (slot) => slot.current_question || slot.current_question_id != null
+                  ).length;
+                  const sectionTitle =
+                    section.name ||
+                    section.title ||
+                    SECTION_TYPE_LABELS[
+                      String(section.section_type || "conceptual").toLowerCase()
+                    ] ||
+                    "Questions";
+
+                  return (
+                    <div key={section.id} className="py-2">
+                      <button
+                        type="button"
+                        aria-expanded={indexExpanded}
+                        onClick={() => setExpandedIndexSectionId(indexExpanded ? null : section.id)}
+                        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-[#F8F7FF] focus:outline-none focus:ring-2 focus:ring-[#6658D7]/25"
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#F1EEFF] text-[10px] font-bold text-[#5146B2]">
+                          {String.fromCharCode(65 + sectionIndex)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[11px] font-semibold text-[#344054]">
+                            {sectionTitle}
+                          </span>
+                          <span className="mt-0.5 block text-[9px] text-[#98A2B3]">
+                            {preparedCount} of {sectionSlots.length} prepared
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-[#F4F5F8] px-2 py-1 text-[9px] font-semibold text-[#667085]">
+                          {sectionSlots.length} {sectionSlots.length === 1 ? "question" : "questions"}
+                        </span>
+                        <ChevronDown
+                          size={14}
+                          className={`shrink-0 text-[#8A94A8] transition-transform ${indexExpanded ? "rotate-180" : ""}`}
+                        />
+                      </button>
+
+                      {indexExpanded && (
+                        <div className="mt-1 space-y-1 pb-1 pl-1 sm:pl-10">
+                          {sectionSlots.map((slot, slotIndex) => {
+                            const question = slot.current_question;
+                            const prepared = Boolean(question || slot.current_question_id != null);
+                            const slotLabel = `${String.fromCharCode(65 + sectionIndex)}.${String(slotIndex + 1).padStart(2, "0")}`;
+                            const matchedSkill = availableSkills.find(
+                              (skill) => String(skill.id) === String(slot.skill_id)
+                            );
+                            const skillLabel =
+                              matchedSkill?.name ||
+                              matchedSkill?.skill_name ||
+                              slot.skill_name ||
+                              (slot.skill_id != null ? `Skill #${slot.skill_id}` : "Skill not assigned");
+                            const rawQuestionType =
+                              question?.question_type ||
+                              slot.preferred_question_type ||
+                              (slot.section_type === "free_text" ? "FREE_TEXT" : "MCQ");
+                            const questionTypeLabel = String(rawQuestionType)
+                              .replace(/_/g, " ")
+                              .toUpperCase();
+                            const difficultyLabel =
+                              DIFFICULTY_LABELS[slot.difficulty] ||
+                              slot.difficulty ||
+                              "Difficulty not set";
+                            const statusLabel = question?.status
+                              ? String(question.status).replace(/_/g, " ")
+                              : prepared
+                                ? "Prepared"
+                                : "Empty";
+                            const previewText = question?.question_text?.trim()
+                              ? getQuestionIndexPreview(question.question_text)
+                              : prepared
+                                ? "Question linked; open the slot to inspect its text."
+                                : "No question yet. Open this slot to generate, select, or author one.";
+
+                            return (
+                              <button
+                                key={slot.id}
+                                type="button"
+                                onClick={() => navigateToQuestion(section.id, slot.id)}
+                                title={`Open ${slotLabel}`}
+                                className={`grid w-full grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-[#6658D7]/25 sm:grid-cols-[44px_minmax(0,1fr)_auto] ${
+                                  prepared
+                                    ? "border-[#E5E0FA] bg-[#FBFAFF] hover:border-[#B9B0F0] hover:bg-[#F7F5FF]"
+                                    : "border-dashed border-[#E3E6EB] bg-[#FCFCFD] hover:border-[#B9B0F0] hover:bg-[#FAF9FF]"
+                                }`}
+                              >
+                                <span className="mt-0.5 inline-flex h-6 items-center justify-center rounded-md bg-white px-1.5 text-[9px] font-bold text-[#5146B2] ring-1 ring-inset ring-[#E3DDFB]">
+                                  {slotLabel}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="line-clamp-2 block text-[10px] font-medium leading-4 text-[#344054]">
+                                    {previewText}
+                                  </span>
+                                  <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-[#7A8498]">
+                                    <span className="max-w-[150px] truncate">{skillLabel}</span>
+                                    <span>{difficultyLabel}</span>
+                                    <span>{questionTypeLabel}</span>
+                                  </span>
+                                </span>
+                                <span className={`col-start-2 mt-0.5 inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold capitalize sm:col-start-auto sm:mt-0 ${
+                                  prepared
+                                    ? "bg-[#F0EDFF] text-[#5146B2]"
+                                    : "bg-[#F0F1F4] text-[#667085]"
+                                }`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${prepared ? "bg-[#6658D7]" : "bg-[#C3C8D2]"}`} />
+                                  {statusLabel}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-4 py-3 text-xs text-[#98A2B3]">
+                No question slots are configured for this set yet.
+              </p>
+            )}
+          </nav>
+        )}
+
         <section className="mt-5 bg-white">
           {sections.map(
             (
@@ -2293,11 +2554,12 @@ function ManagerAssessmentSets() {
                   section.section_type ||
                     "conceptual"
                 ).toLowerCase();
+              const sectionTone = getQuestionSectionTone(sectionType);
 
               return (
                 <section
                   key={section.id}
-                  className="border-b border-[#E5E7EB] last:border-b-0"
+                  className="mb-4 border-b border-[#E5E7EB] pb-4 last:mb-0 last:border-b-0 last:pb-0"
                 >
                   <button
                     type="button"
@@ -2306,11 +2568,11 @@ function ManagerAssessmentSets() {
                         section.id
                       )
                     }
-                    className="flex w-full items-start justify-between gap-5 py-5 text-left"
+                    className={`flex w-full items-start justify-between gap-5 rounded-lg border px-4 py-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6658D7]/25 ${sectionTone.sectionHeader}`}
                   >
                     <div className="flex min-w-0 items-start gap-3.5">
 
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-[#F1EEFF] text-xs font-bold text-[#5E4DA3]">
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${sectionTone.sectionLetter}`}>
                         {String.fromCharCode(
                           65 +
                             sectionIndex
@@ -2320,7 +2582,7 @@ function ManagerAssessmentSets() {
                       <div className="min-w-0">
 
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#98A2B3]">
+                          <span className={`text-[9px] font-bold uppercase tracking-[0.16em] ${sectionTone.sectionEyebrow}`}>
                             Section{" "}
                             {String.fromCharCode(
                               65 +
@@ -2328,7 +2590,7 @@ function ManagerAssessmentSets() {
                             )}
                           </span>
 
-                          <span className="text-[10px] font-semibold text-[#5E4DA3]">
+                          <span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-semibold ${sectionTone.sectionType}`}>
                             {SECTION_TYPE_LABELS[
                               sectionType
                             ] ||
@@ -2353,20 +2615,13 @@ function ManagerAssessmentSets() {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
-                      <span className="text-[10px] font-semibold text-[#667085]">
-                        {
-                          sectionPrepared
-                        }
-                        /
-                        {
-                          sectionSlots.length
-                        }{" "}
-                        prepared
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold tabular-nums ${sectionTone.preparedBadge}`}>
+                        {sectionPrepared}/{sectionSlots.length} prepared
                       </span>
 
                       <ChevronDown
                         size={16}
-                        className={`text-[#8A94A8] transition-transform ${
+                        className={`text-[#667085] ${
                           sectionExpanded
                             ? "rotate-180"
                             : ""
@@ -2916,6 +3171,7 @@ function ManagerAssessmentSets() {
               generationRequest
                 .slot?.id
             }
+            generationStartedAt={generationStartedAt}
           />
         </Modal>
       )}
@@ -2943,7 +3199,7 @@ function ManagerAssessmentSets() {
                 candidatePool.slot
                   ?.id
               }
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#D8D1FF] bg-[#F8F7FF] px-3 text-[10px] font-semibold text-[#5146B2] transition hover:border-[#BDB5F6] hover:bg-[#F1EEFF] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#DDD8FA] bg-white px-3 text-[10px] font-semibold text-[#5D52B6] shadow-sm transition hover:border-[#BEB5F5] hover:bg-[#F8F7FF] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshCw
                 size={12}
@@ -2966,6 +3222,13 @@ function ManagerAssessmentSets() {
             </button>
           }
         >
+          {generatingSlotId === candidatePool.slot?.id && generationStartedAt && (
+            <GenerationProgressPanel
+              key={generationStartedAt}
+              startedAt={generationStartedAt}
+              compact
+            />
+          )}
           <CandidatePool
             candidatePool={
               candidatePool
@@ -3109,10 +3372,25 @@ function ManagerAssessmentSets() {
           }
           wide
         >
+          <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#E7EAF0] bg-[#FAFBFD] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#667085]">
+                Skill-matched library
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#667085]">
+                Only questions from approved question sets matching <strong className="font-semibold text-[#344054]">{existingSlot.skill_name || `Skill #${existingSlot.skill_id}`}</strong>, {DIFFICULTY_LABELS[existingSlot.difficulty] || existingSlot.difficulty}, {String(existingSlot.preferred_question_type || (existingSlot.section_type === "free_text" ? "FREE_TEXT" : "MCQ")).toUpperCase() === "FREE_TEXT" ? "free-text" : "multiple-choice"} type, and {SECTION_TYPE_LABELS[existingSlot.section_type] || existingSlot.section_type} section can be assigned to this slot.
+              </p>
+            </div>
+            <span className="inline-flex shrink-0 items-center rounded-full border border-[#E0E4EC] bg-white px-3 py-1.5 text-[10px] font-semibold text-[#667085]">
+              {sourceTab === "bank"
+                ? loadingBank ? "Searching library…" : `${filteredBankQuestions.length} matching questions`
+                : loadingHistorical ? "Searching history…" : `${filteredHistoricalQuestions.length} finalized questions`}
+            </span>
+          </div>
           <div className="border-b border-[#E5E7EB]">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
 
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 <button
                   type="button"
                   onClick={() =>
@@ -3172,7 +3450,7 @@ function ManagerAssessmentSets() {
                           .value
                       )
                     }
-                    className="h-9 w-60 border border-[#D9DEE7] bg-white pl-8 pr-3 text-xs text-[#344054] outline-none focus:border-[#6658D7]"
+                    className="h-9 w-full rounded-lg border border-[#D9DEE7] bg-white pl-8 pr-3 text-xs text-[#344054] outline-none transition focus:border-[#6658D7] focus:ring-4 focus:ring-[#6658D7]/10 sm:w-60"
                     placeholder="Search matching questions…"
                   />
                 </div>
@@ -3191,7 +3469,7 @@ function ManagerAssessmentSets() {
                           .value
                       )
                     }
-                    className="h-9 border border-[#D9DEE7] bg-white px-3 text-xs font-semibold text-[#475467] outline-none"
+                    className="h-9 rounded-lg border border-[#D9DEE7] bg-white px-3 text-xs font-semibold text-[#475467] outline-none transition focus:border-[#6658D7] focus:ring-4 focus:ring-[#6658D7]/10"
                   >
                     <option value="rating">
                       Top rated
@@ -3214,7 +3492,7 @@ function ManagerAssessmentSets() {
               loading={
                 loadingBank
               }
-              emptyMessage="No approved current-year question matches this exact skill, difficulty and section type."
+              emptyMessage="The current job/year question bank has no approved question matching this exact skill, difficulty, section, and question type. Check Previous finalized assessments for approved questions from an earlier cycle, or generate a new candidate."
               questions={
                 filteredBankQuestions
               }
@@ -3228,7 +3506,7 @@ function ManagerAssessmentSets() {
               loading={
                 loadingHistorical
               }
-              emptyMessage="No approved question from a previous finalized assessment matches this exact skill, difficulty and section type."
+              emptyMessage="No approved question from a previous finalized assessment matches this skill, difficulty, section, and question type. The library will not offer mismatched questions for this slot."
               questions={
                 filteredHistoricalQuestions
               }
@@ -3254,14 +3532,14 @@ function GenerationControl({
   ariaLabel = "AI candidate count",
 }) {
   return (
-    <div className="inline-flex h-10 min-w-[174px] shrink-0 overflow-hidden rounded-lg border border-[#4E3FC9] bg-[#5A49D7] shadow-[0_6px_18px_rgba(90,73,215,0.24)] ring-1 ring-white/10">
+    <div className="inline-flex h-10 min-w-[174px] shrink-0 overflow-hidden rounded-lg border border-[#5146B2] bg-[#5146B2]">
       <button
         type="button"
         onClick={() =>
           onGenerate(count)
         }
         disabled={generating}
-        className="inline-flex h-full min-w-[112px] items-center justify-center gap-2 bg-gradient-to-r from-[#6454EC] via-[#7359F2] to-[#8A5CF6] px-4 text-[11px] font-bold tracking-[0.01em] text-white transition-all duration-150 hover:from-[#5748DD] hover:via-[#654AE6] hover:to-[#7B4DEB] disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-full min-w-[112px] items-center justify-center gap-2 bg-[#6658D7] px-4 text-[11px] font-bold tracking-[0.01em] text-white disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
       >
         {generating ? (
           <RefreshCw
@@ -3279,7 +3557,7 @@ function GenerationControl({
         </span>
       </button>
 
-      <div className="relative flex h-full w-[62px] shrink-0 items-center border-l border-white/20 bg-[#5545D0]">
+      <div className="relative flex h-full w-[62px] shrink-0 items-center border-l border-white/25 bg-[#5146B2]">
         <select
           value={count}
           onChange={(event) =>
@@ -3346,6 +3624,8 @@ function QuestionRow({
   const question =
     slot.current_question;
 
+  const visualTheme = getQuestionSectionTone(slot.section_type);
+
   const attempts =
     Array.isArray(
       slot.generation_attempts
@@ -3374,13 +3654,16 @@ function QuestionRow({
     );
 
   return (
-    <div className="border-b border-[#EEF0F3] py-5 last:border-b-0">
+    <div
+      id={`question-slot-${slot.id}`}
+      className={`relative scroll-mt-28 rounded-xl border p-4 sm:p-5 ${visualTheme.cardBorder} ${visualTheme.cardBackground}`}
+    >
 
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
 
         <div className="flex min-w-0 items-start gap-3.5">
 
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-[#DDD9F2] bg-[#F7F5FF] text-xs font-bold text-[#5146B2]">
+          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold ${visualTheme.numberBadge}`}>
             {String(
               questionNumber
             ).padStart(
@@ -3402,11 +3685,8 @@ function QuestionRow({
                 ·
               </span>
 
-              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#667085]">
-                {DIFFICULTY_LABELS[
-                  slot.difficulty
-                ] ||
-                  slot.difficulty}
+              <span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${visualTheme.difficultyBadge}`}>
+                {DIFFICULTY_LABELS[slot.difficulty] || slot.difficulty}
               </span>
 
               {question && (
@@ -3443,7 +3723,7 @@ function QuestionRow({
               />
             </div>
 
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className={`mt-3 flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center ${visualTheme.skillPanel}`}>
 
               <div className="relative w-full max-w-xs">
 
@@ -3467,7 +3747,7 @@ function QuestionRow({
                     savingSkill ||
                     generating
                   }
-                  className="h-9 w-full border border-[#D9DEE7] bg-white px-2.5 pr-8 text-xs font-semibold text-[#344054] outline-none focus:border-[#6658D7] disabled:bg-[#F8F9FB] disabled:text-[#667085]"
+                  className={`h-9 w-full rounded-lg border px-3 pr-8 text-xs font-semibold text-[#344054] outline-none focus:border-[#6658D7] focus:bg-white focus:ring-4 focus:ring-[#6658D7]/10 disabled:bg-[#F8F9FB] disabled:text-[#667085] ${visualTheme.skillSelect}`}
                 >
                   {availableSkills.length ===
                     0 && (
@@ -3500,7 +3780,7 @@ function QuestionRow({
                 </select>
               </div>
 
-              <span className="text-[10px] text-[#98A2B3]">
+              <span className={`text-[10px] leading-4 ${visualTheme.helperText}`}>
                 Choose from confirmed JD skills.{" "}
                 {SECTION_TYPE_LABELS[
                   slot.section_type
@@ -3515,13 +3795,12 @@ function QuestionRow({
             </div>
 
             {question ? (
-              <div className="mt-4">
+              <div className={`mt-4 rounded-xl border px-4 py-3.5 sm:px-5 sm:py-4 ${visualTheme.questionPanel}`}>
 
-                <p className="max-w-5xl text-[15px] font-medium leading-7 text-[#263042]">
-                  {
-                    question.question_text
-                  }
-                </p>
+                <QuestionText
+                  text={question.question_text}
+                  className="max-w-5xl text-[14px] leading-6 text-[#273142]"
+                />
 
                 {question.question_type !==
                   "FREE_TEXT" &&
@@ -3551,17 +3830,17 @@ function QuestionRow({
                             return (
                               <div
                                 key={`${option}-${index}`}
-                                className={`rounded-md px-1.5 py-1 text-xs leading-5 ${
+                                className={`rounded-lg border px-3 py-2.5 text-xs leading-5 ${
                                   isCorrect
-                                    ? "bg-[#F3FBF6] text-[#28734E]"
-                                    : "text-[#667085]"
+                                    ? "border-[#B9DEC9] bg-[#F3FAF6] text-[#28734E]"
+                                    : "border-[#E1E6EE] bg-[#FBFCFE] text-[#586779]"
                                 }`}
                               >
                                 <span
-                                  className={`mr-1.5 font-semibold ${
+                                  className={`mr-2 inline-flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-[10px] font-bold ${
                                     isCorrect
-                                      ? "text-[#28734E]"
-                                      : "text-[#566070]"
+                                      ? "bg-[#DFF2E6] text-[#28734E]"
+                                      : "bg-[#F1F4F8] text-[#5E6C7D] ring-1 ring-inset ring-[#E0E5ED]"
                                   }`}
                                 >
                                   {String.fromCharCode(
@@ -3571,12 +3850,13 @@ function QuestionRow({
                                   .
                                 </span>
 
-                                {
-                                  option
-                                }
+                                <QuestionText
+                                  text={option}
+                                  className="inline text-xs leading-5"
+                                />
 
                                 {isCorrect && (
-                                  <span className="ml-1.5 text-[8px] font-bold uppercase tracking-[0.08em]">
+                                  <span className="ml-2 inline-flex items-center rounded-full bg-[#DFF2E6] px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.08em]">
                                     ✓ Correct
                                   </span>
                                 )}
@@ -3608,12 +3888,17 @@ function QuestionRow({
             ) : (
               <div className="mt-4">
 
-                <p className="text-xs text-[#7A8498]">
-                  No question added yet. Choose a source below.
-                </p>
+                <div className={`rounded-xl border border-dashed px-4 py-3.5 ${visualTheme.emptyBorder} ${visualTheme.emptyBackground}`}>
+                  <p className={`text-xs font-semibold ${visualTheme.emptyTitle}`}>
+                    No question added yet
+                  </p>
+                  <p className={`mt-1 text-[10px] leading-5 ${visualTheme.emptyText}`}>
+                    Generate a draft, write one manually, or choose an approved question from the library for this skill.
+                  </p>
+                </div>
 
                 {latestGenerated && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-l-2 border-[#CFC9F4] bg-[#FAF9FF] px-3 py-2.5 text-[10px] text-[#5146B2]">
+                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-[#E5E1F7] bg-[#FBFAFF] px-3 py-2.5 text-[10px] text-[#5146B2]">
 
                     <Bot size={12} />
 
@@ -3656,7 +3941,7 @@ function QuestionRow({
                 )}
 
                 {latestFailed && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-l-2 border-[#D36B6B] bg-[#FFF8F8] px-3 py-2.5 text-[10px] text-[#9F3F3F]">
+                  <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-[#F0DCDC] bg-[#FFFAFA] px-3 py-2.5 text-[10px] text-[#9F3F3F]">
 
                     <span className="min-w-0 flex-1">
                       AI generation failed:{" "}
@@ -3723,6 +4008,7 @@ function QuestionRow({
               </ActionButton>
 
               <ActionButton
+                tone="library"
                 icon={
                   <History
                     size={13}
@@ -3732,7 +4018,7 @@ function QuestionRow({
                   onExisting
                 }
               >
-                Existing
+                Question library
               </ActionButton>
             </>
           ) : (
@@ -3773,6 +4059,7 @@ function QuestionRow({
               />
 
               <ActionButton
+                tone="library"
                 icon={
                   <History
                     size={13}
@@ -3790,93 +4077,60 @@ function QuestionRow({
       </div>
 
       {question && (
-        <div className="mt-4 flex flex-col gap-3 border-t border-[#F0F1F4] pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-4 flex flex-col gap-4 border-t border-[#EEF0F3] pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3 text-[10px] text-[#8490A1]">
+            <SourceBadge source={slot.source_type || question.source} />
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-[#98A2B3]">
-
-            <SourceBadge
-              source={
-                slot.source_type ||
-                question.source
-              }
-            />
-
-            <span>
-              Version{" "}
-              {question.version ||
-                1}
+            <span className="rounded-md bg-[#F6F7FA] px-2 py-1 text-[#667085]">
+              Version {question.version || 1}
             </span>
 
-            <span>
-              Reviewer{" "}
-              {question.reviewer_rating
-                ? `${question.reviewer_rating}/3`
-                : "—"}
+            <span className="inline-flex items-center gap-2 rounded-lg border border-[#DDE5EA] bg-white px-2.5 py-1.5">
+              <span className="font-semibold text-[#536473]">Reviewer</span>
+              <StaticStarRating value={question.reviewer_rating} label="Reviewer quality rating" />
+              <span className="font-semibold tabular-nums text-[#667085]">
+                {question.reviewer_rating ? `${question.reviewer_rating}/3` : "Not rated"}
+              </span>
             </span>
 
-            <span className="flex items-center gap-2">
-              Manager rating
-
+            <span className="inline-flex items-center gap-2 rounded-lg border border-[#EFDFB6] bg-[#FFF8E6] px-2.5 py-1.5">
+              <span className="font-semibold text-[#8F671C]">Your rating</span>
               <StarRating
-                value={
-                  question.manager_rating
-                }
-                disabled={
-                  ratingQuestionId ===
-                  question.id
-                }
-                onChange={(value) =>
-                  onRate(
-                    question.id,
-                    value
-                  )
-                }
+                value={question.manager_rating}
+                disabled={ratingQuestionId === question.id}
+                onChange={(value) => onRate(question.id, value)}
               />
+              <span className="font-semibold tabular-nums text-[#8F671C]">
+                {question.manager_rating ? `${question.manager_rating}/3` : "Rate"}
+              </span>
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-
             {latestGenerated && (
               <button
                 type="button"
-                onClick={() =>
-                  onReviewCandidate(
-                    latestGenerated
-                  )
-                }
-                className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-[#5146B2]"
+                onClick={() => onReviewCandidate(latestGenerated)}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold text-[#5146B2] transition hover:bg-[#F5F2FF] focus:outline-none focus:ring-2 focus:ring-[#6658D7]/20"
               >
                 <Bot size={12} />
                 Review AI candidates
               </button>
             )}
 
-            {recoverable
-              .slice(0, 3)
-              .map((attempt) => (
-                <button
-                  key={
-                    attempt.id
-                  }
-                  type="button"
-                  onClick={() =>
-                    onRestore(
-                      attempt
-                    )
-                  }
-                  disabled={
-                    restoringAttemptId ===
-                    attempt.id
-                  }
-                  className="text-[10px] font-semibold text-[#667085] hover:text-[#5146B2] disabled:opacity-50"
-                >
-                  {restoringAttemptId ===
-                  attempt.id
-                    ? "Restoring…"
-                    : `Restore #${attempt.attempt_number}`}
-                </button>
-              ))}
+            {recoverable.slice(0, 3).map((attempt) => (
+              <button
+                key={attempt.id}
+                type="button"
+                onClick={() => onRestore(attempt)}
+                disabled={restoringAttemptId === attempt.id}
+                className="rounded-lg px-2.5 py-2 text-[10px] font-semibold text-[#667085] transition hover:bg-[#F6F7FA] hover:text-[#5146B2] focus:outline-none focus:ring-2 focus:ring-[#6658D7]/20 disabled:opacity-50"
+              >
+                {restoringAttemptId === attempt.id
+                  ? "Restoring…"
+                  : `Restore #${attempt.attempt_number}`}
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -3941,16 +4195,18 @@ function ActionButton({
   onClick,
   className = "",
 }) {
+  const toneClasses = {
+    primary: "border-[#5146B2] bg-[#5146B2] text-white",
+    library: "border-[#BFE3D7] bg-[#E8F6F0] text-[#176E5F]",
+    default: "border-[#D8DFE8] bg-white text-[#475467]",
+  };
+
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex h-9 items-center gap-1.5 border px-3 text-[10px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-        tone === "primary"
-          ? "border-[#6658D7] bg-[#6658D7] text-white hover:bg-[#584CC5]"
-          : "border-[#D9DEE7] bg-white text-[#475467] hover:border-[#BFC4CF] hover:text-[#202938]"
-      } ${className}`}
+      className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[10px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6658D7]/25 disabled:cursor-not-allowed disabled:opacity-50 ${toneClasses[tone] || toneClasses.default} ${className}`}
     >
       {icon}
       {children}
@@ -4007,16 +4263,19 @@ function SourceBadge({
 function StatusText({
   status,
 }) {
-  const label = String(
-    status || ""
-  ).replaceAll(
-    "_",
-    " "
-  );
+  const normalized = String(status || "draft").toLowerCase();
+  const label = normalized.replaceAll("_", " ");
+  const statusTone = {
+    approved: "border-[#B8E0CA] bg-[#E9F7EF] text-[#20764B]",
+    pending_review: "border-[#F0DCA9] bg-[#FFF7DF] text-[#946B18]",
+    rejected: "border-[#F0CACA] bg-[#FFF0F0] text-[#A83E3E]",
+    draft: "border-[#DCE3EC] bg-[#F2F5F9] text-[#637184]",
+    published: "border-[#B8E0CA] bg-[#E9F7EF] text-[#20764B]",
+  }[normalized] || "border-[#DCE3EC] bg-[#F2F5F9] text-[#637184]";
 
   return (
-    <span className="text-[9px] font-semibold capitalize text-[#98A2B3]">
-      {label || "draft"}
+    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[9px] font-semibold capitalize ${statusTone}`}>
+      {label}
     </span>
   );
 }
@@ -4128,46 +4387,47 @@ function getCorrectAnswerLabel(
   };
 }
 
-function StarRating({
-  value,
-  disabled,
-  onChange,
-}) {
-  const numeric = Number(
-    value || 0
-  );
+function StaticStarRating({ value, label = "Question rating" }) {
+  const numeric = Number(value || 0);
 
   return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3].map(
-        (star) => (
-          <button
-            key={star}
-            type="button"
-            onClick={() =>
-              onChange(
-                numeric ===
-                  star
-                  ? null
-                  : star
-              )
-            }
-            disabled={disabled}
-            className="p-0.5 disabled:opacity-50"
-          >
-            <Star
-              size={13}
-              className={
-                star <=
-                numeric
-                  ? "fill-[#C58A32] text-[#C58A32]"
-                  : "text-[#C9CDD6]"
-              }
-            />
-          </button>
-        )
-      )}
-    </div>
+    <span className="inline-flex items-center gap-0.5" role="img" aria-label={`${label}: ${numeric ? `${numeric} out of 3 stars` : "not rated"}`}>
+      {[1, 2, 3].map((star) => (
+        <Star
+          key={star}
+          size={12}
+          strokeWidth={1.8}
+          className={star <= numeric ? "fill-[#D4A34A] text-[#B88324]" : "text-[#D6DAE2]"}
+        />
+      ))}
+    </span>
+  );
+}
+
+function StarRating({ value, disabled, onChange }) {
+  const numeric = Number(value || 0);
+
+  return (
+    <span className="inline-flex items-center gap-0.5" role="group" aria-label="Set manager quality rating">
+      {[1, 2, 3].map((star) => (
+        <button
+          key={star}
+          type="button"
+          onClick={() => onChange(numeric === star ? null : star)}
+          disabled={disabled}
+          aria-label={`Rate this question ${star} out of 3 stars`}
+          aria-pressed={numeric === star}
+          title={`${star} out of 3 stars${numeric === star ? " (click to clear)" : ""}`}
+          className="rounded-md p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4A34A]/35 disabled:cursor-wait disabled:opacity-50"
+        >
+          <Star
+            size={15}
+            strokeWidth={1.9}
+            className={star <= numeric ? "fill-[#D4A34A] text-[#B88324]" : "text-[#C8CDD6]"}
+          />
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -4293,6 +4553,127 @@ function generationFocusLabel(
   );
 }
 
+function GenerationProgressPanel({ startedAt, compact = false }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      );
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [startedAt]);
+
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  const elapsedRemainder = elapsedSeconds % 60;
+  const elapsedLabel = `${String(elapsedMinutes).padStart(2, "0")}:${String(
+    elapsedRemainder
+  ).padStart(2, "0")}`;
+
+  const stages = [
+    {
+      number: "01",
+      title: "Plan the batch",
+      description:
+        "Use the selected skill, section, difficulty, question type and manager guidance as constraints.",
+    },
+    {
+      number: "02",
+      title: "Generate drafts",
+      description:
+        "Create question candidates according to the selected generation strategy and question style.",
+    },
+    {
+      number: "03",
+      title: "Validate candidates",
+      description:
+        "Check generated drafts against the assessment requirements and generation validation rules.",
+    },
+    {
+      number: "04",
+      title: "Prepare human review",
+      description:
+        "Return the candidates for the manager to inspect. A candidate becomes the current question only after explicit acceptance.",
+    },
+  ];
+
+  return (
+    <section
+      className={`rounded-xl border border-[#D8D1FF] bg-gradient-to-br from-[#FAF9FF] to-white ${
+        compact ? "p-3.5" : "p-4"
+      }`}
+      aria-busy="true"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#ECE9FF] text-[#5146B2]">
+          <RefreshCw size={16} className="animate-spin" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-xs font-bold text-[#3E378A]"
+            >
+              AI question generation is in progress
+            </p>
+            <span className="rounded-full border border-[#E2DDF8] bg-white px-2.5 py-1 text-[10px] font-semibold tabular-nums text-[#5146B2]">
+              Elapsed {elapsedLabel}
+            </span>
+          </div>
+
+          <p className="mt-1.5 text-[11px] leading-5 text-[#667085]">
+            Evalyn is waiting for the generation service to return the batch. The
+            current endpoint does not report live internal stage completion, so
+            the steps below explain the pipeline rather than claiming a stage has
+            finished.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-[#EAE7FA]">
+        <div className="h-full w-1/3 animate-pulse rounded-full bg-[#6658D7]" />
+      </div>
+
+      <div className={`mt-4 grid gap-2 ${compact ? "sm:grid-cols-2" : "sm:grid-cols-2"}`}>
+        {stages.map((stage) => (
+          <div
+            key={stage.number}
+            className="flex items-start gap-2.5 rounded-lg border border-[#EEEAFB] bg-white/90 p-3"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#F0EDFF] text-[9px] font-bold text-[#5146B2]">
+              {stage.number}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold text-[#344054]">
+                {stage.title}
+              </p>
+              <p className="mt-1 text-[10px] leading-4 text-[#7A8498]">
+                {stage.description}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-start gap-2 rounded-lg bg-[#F8F7FF] px-3 py-2.5">
+        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-[#6658D7]" />
+        <p className="text-[10px] leading-4 text-[#667085]">
+          Human review remains in control: generated drafts do not replace an
+          existing question until you choose to accept one.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function GenerationSettingsForm({
   slot,
   count,
@@ -4305,6 +4686,7 @@ function GenerationSettingsForm({
   onSubmit,
   onCancel,
   generating,
+  generationStartedAt,
 }) {
   const selectedType =
     slot?.preferred_question_type ||
@@ -4449,6 +4831,13 @@ function GenerationSettingsForm({
           {selectedType}
         </span>
       </div>
+
+      {generating && generationStartedAt && (
+        <GenerationProgressPanel
+          key={generationStartedAt}
+          startedAt={generationStartedAt}
+        />
+      )}
 
       <div>
 
@@ -4663,481 +5052,339 @@ function CandidatePool({
   acceptingAttemptId,
   onAccept,
 }) {
-  const attempts =
-    Array.isArray(
-      candidatePool?.attempts
-    )
-      ? candidatePool.attempts
-      : [];
+  const attempts = Array.isArray(candidatePool?.attempts)
+    ? candidatePool.attempts
+    : [];
 
-  const patterns =
-    useMemo(
-      () =>
-        Array.from(
-          new Set(
-            attempts.map(
-              (attempt) =>
-                inferCandidatePattern(
-                  attempt
-                )
-            )
-          )
-        ).sort(),
-      [attempts]
-    );
+  const patterns = useMemo(
+    () =>
+      Array.from(
+        new Set(attempts.map((attempt) => inferCandidatePattern(attempt)))
+      ).sort(),
+    [attempts]
+  );
 
-  const filtered =
-    useMemo(() => {
-      const normalizedSearch =
-        search
-          .trim()
+  const filtered = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    const rows = attempts.filter((attempt) => {
+      if (normalizedSearch) {
+        const haystack = [
+          attempt?.question_text,
+          ...(attempt?.options || []),
+        ]
+          .join(' ')
           .toLowerCase();
 
-      const rows =
-        attempts.filter(
-          (attempt) => {
-            if (
-              normalizedSearch
-            ) {
-              const haystack =
-                [
-                  attempt?.question_text,
-                  ...(attempt?.options ||
-                    []),
-                ]
-                  .join(" ")
-                  .toLowerCase();
+        if (!haystack.includes(normalizedSearch)) return false;
+      }
 
-              if (
-                !haystack.includes(
-                  normalizedSearch
-                )
-              ) {
-                return false;
-              }
-            }
+      if (pattern !== 'all' && inferCandidatePattern(attempt) !== pattern) {
+        return false;
+      }
 
-            if (
-              pattern !==
-                "all" &&
-              inferCandidatePattern(
-                attempt
-              ) !== pattern
-            ) {
-              return false;
-            }
+      if (length !== 'all') {
+        const words = candidateWordCount(attempt);
 
-            if (
-              length !==
-              "all"
-            ) {
-              const words =
-                candidateWordCount(
-                  attempt
-                );
+        if (length === 'brief' && words > 35) return false;
+        if (length === 'standard' && (words <= 35 || words > 75)) return false;
+        if (length === 'detailed' && words <= 75) return false;
+      }
 
-              if (
-                length ===
-                  "brief" &&
-                words > 35
-              ) {
-                return false;
-              }
+      return true;
+    });
 
-              if (
-                length ===
-                  "standard" &&
-                (words <= 35 ||
-                  words >
-                    75)
-              ) {
-                return false;
-              }
+    return [...rows].sort((a, b) => {
+      if (sort === 'shortest') {
+        return candidateWordCount(a) - candidateWordCount(b);
+      }
 
-              if (
-                length ===
-                  "detailed" &&
-                words <= 75
-              ) {
-                return false;
-              }
-            }
+      if (sort === 'longest') {
+        return candidateWordCount(b) - candidateWordCount(a);
+      }
 
-            return true;
-          }
+      if (sort === 'alpha') {
+        return String(a?.question_text || '').localeCompare(
+          String(b?.question_text || '')
         );
+      }
 
-      return [...rows].sort(
-        (a, b) => {
-          if (
-            sort ===
-            "shortest"
-          ) {
-            return (
-              candidateWordCount(
-                a
-              ) -
-              candidateWordCount(
-                b
-              )
-            );
-          }
+      return Number(b?.attempt_number || 0) - Number(a?.attempt_number || 0);
+    });
+  }, [attempts, search, pattern, length, sort]);
 
-          if (
-            sort ===
-            "longest"
-          ) {
-            return (
-              candidateWordCount(
-                b
-              ) -
-              candidateWordCount(
-                a
-              )
-            );
-          }
-
-          if (
-            sort ===
-            "alpha"
-          ) {
-            return String(
-              a?.question_text ||
-                ""
-            ).localeCompare(
-              String(
-                b?.question_text ||
-                  ""
-              )
-            );
-          }
-
-          return (
-            Number(
-              b?.attempt_number ||
-                0
-            ) -
-            Number(
-              a?.attempt_number ||
-                0
-            )
-          );
-        }
-      );
-    }, [
-      attempts,
-      search,
-      pattern,
-      length,
-      sort,
-    ]);
+  const selectClassName =
+    'h-10 rounded-xl border border-[#E0E4EC] bg-white px-3 text-xs font-medium text-[#475467] shadow-sm outline-none transition focus:border-[#7A6AF0] focus:ring-4 focus:ring-[#7A6AF0]/10';
 
   return (
-    <div>
-
-      <div className="border-y border-[#E7E9EE] bg-[#FAFBFC] px-4 py-4">
-
-        <div className="border border-[#DDD8FA] bg-[#F8F7FF] px-3.5 py-3.5">
-
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-
-            <div className="min-w-0 flex-1">
-
-              <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#5146B2]">
-                Tell AI what you want in the next batch
-              </label>
-
-              <textarea
-                value={
-                  promptDraft
-                }
-                onChange={(
-                  event
-                ) =>
-                  setPromptDraft(
-                    event.target
-                      .value
-                  )
-                }
-                maxLength={1200}
-                rows={2}
-                className="mt-2 w-full resize-y border border-[#D8D2F3] bg-white px-3 py-2.5 text-xs leading-5 text-[#344054] outline-none"
-                placeholder="Example: Give me debugging questions with a short broken FastAPI snippet. Ask for the root cause and best fix. Avoid definition-only questions."
-              />
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-2xl border border-[#E4E0FA] bg-gradient-to-br from-[#FAF9FF] via-white to-[#F8FAFF] p-4 sm:p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ECE9FF] text-[#6658D7] ring-1 ring-inset ring-[#DBD5FF]">
+            <Sparkles size={17} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-[#252746]">
+                Refine your next batch
+              </h3>
+              <span className="rounded-full border border-[#E0DBFA] bg-white/80 px-2 py-0.5 text-[9px] font-semibold text-[#7467C6]">
+                Optional guidance
+              </span>
             </div>
-
-            <button
-              type="button"
-              onClick={
-                onRegenerate
-              }
-              disabled={
-                !promptDraft.trim()
-              }
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 bg-[#6658D7] px-3.5 text-[10px] font-semibold text-white disabled:opacity-50"
-            >
-              <RefreshCw
-                size={12}
-              />
-              Regenerate with prompt
-            </button>
+            <p className="mt-1 text-xs leading-5 text-[#7A8498]">
+              Tell the AI what to emphasize. Required skill, section, difficulty and question type remain enforced.
+            </p>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-
-          <div className="relative min-w-[240px] flex-1">
-
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1">
+            <label
+              htmlFor="candidate-prompt"
+              className="mb-2 block text-[10px] font-bold uppercase tracking-[0.13em] text-[#5D52B6]"
+            >
+              Generation instructions
+            </label>
+            <textarea
+              id="candidate-prompt"
+              value={promptDraft}
+              onChange={(event) => setPromptDraft(event.target.value)}
+              maxLength={1200}
+              rows={2}
+              className="min-h-[68px] w-full resize-y rounded-xl border border-[#DDD8F6] bg-white px-3.5 py-3 text-xs leading-5 text-[#344054] shadow-sm outline-none transition placeholder:text-[#9AA2B1] focus:border-[#7A6AF0] focus:ring-4 focus:ring-[#7A6AF0]/10"
+              placeholder="Example: Ask debugging questions with a short broken FastAPI snippet. Focus on root cause and the best fix; avoid definition-only questions."
             />
+            <div className="mt-1.5 flex justify-end text-[10px] tabular-nums text-[#98A2B3]">
+              {promptDraft.length}/1200
+            </div>
+          </div>
 
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={!promptDraft.trim()}
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#6658D7] px-4 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(102,88,215,0.18)] transition hover:-translate-y-0.5 hover:bg-[#584BC7] focus:outline-none focus:ring-4 focus:ring-[#6658D7]/15 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+          >
+            <RefreshCw size={13} />
+            Regenerate with prompt
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[#E5E8EF] bg-[#FBFCFE] p-3.5 sm:p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xs font-semibold text-[#344054]">Find a candidate</h3>
+            <p className="mt-0.5 text-[10px] text-[#98A2B3]">
+              Search question text or narrow by pattern and length.
+            </p>
+          </div>
+          <span className="rounded-full border border-[#E2E6EF] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#667085]">
+            {filtered.length} of {attempts.length} shown
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:flex-nowrap">
+          <div className="relative min-w-0 flex-1">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3]"
+            />
             <input
               value={search}
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event.target
-                    .value
-                )
-              }
-              className="h-9 w-full border border-[#D9DEE7] bg-white pl-9 pr-3 text-xs text-[#344054] outline-none focus:border-[#6658D7]"
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-10 w-full rounded-xl border border-[#E0E4EC] bg-white pl-10 pr-3 text-xs text-[#344054] shadow-sm outline-none transition placeholder:text-[#9AA2B1] focus:border-[#7A6AF0] focus:ring-4 focus:ring-[#7A6AF0]/10"
               placeholder="Search candidates..."
+              aria-label="Search AI candidates"
             />
           </div>
 
-          <SlidersHorizontal
-            size={13}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <SlidersHorizontal size={14} className="hidden text-[#8A94A8] sm:block" />
+            <select
+              value={pattern}
+              onChange={(event) => setPattern(event.target.value)}
+              className={`${selectClassName} min-w-[145px] flex-1 sm:flex-none`}
+              aria-label="Filter by question pattern"
+            >
+              <option value="all">All patterns</option>
+              {patterns.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
 
-          <select
-            value={pattern}
-            onChange={(
-              event
-            ) =>
-              setPattern(
-                event.target
-                  .value
-              )
-            }
-            className="h-9 border border-[#D9DEE7] bg-white px-2.5 text-xs font-semibold text-[#475467]"
-          >
-            <option value="all">
-              All patterns
-            </option>
+            <select
+              value={length}
+              onChange={(event) => setLength(event.target.value)}
+              className={`${selectClassName} flex-1 sm:flex-none`}
+              aria-label="Filter by question length"
+            >
+              <option value="all">Any length</option>
+              <option value="brief">Brief</option>
+              <option value="standard">Standard</option>
+              <option value="detailed">Detailed</option>
+            </select>
 
-            {patterns.map(
-              (item) => (
-                <option
-                  key={
-                    item
-                  }
-                  value={
-                    item
-                  }
-                >
-                  {item}
-                </option>
-              )
-            )}
-          </select>
-
-          <select
-            value={length}
-            onChange={(
-              event
-            ) =>
-              setLength(
-                event.target
-                  .value
-              )
-            }
-            className="h-9 border border-[#D9DEE7] bg-white px-2.5 text-xs font-semibold text-[#475467]"
-          >
-            <option value="all">
-              Any length
-            </option>
-            <option value="brief">
-              Brief
-            </option>
-            <option value="standard">
-              Standard
-            </option>
-            <option value="detailed">
-              Detailed
-            </option>
-          </select>
-
-          <select
-            value={sort}
-            onChange={(
-              event
-            ) =>
-              setSort(
-                event.target
-                  .value
-              )
-            }
-            className="h-9 border border-[#D9DEE7] bg-white px-2.5 text-xs font-semibold text-[#475467]"
-          >
-            <option value="newest">
-              Newest
-            </option>
-            <option value="shortest">
-              Shortest
-            </option>
-            <option value="longest">
-              Longest
-            </option>
-            <option value="alpha">
-              A–Z
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div className="mt-4 divide-y divide-[#EEF0F3] border-y border-[#EEF0F3]">
-
-        {!filtered.length ? (
-          <div className="py-14 text-center text-sm text-[#667085]">
-            No candidates match these filters.
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+              className={`${selectClassName} flex-1 sm:flex-none`}
+              aria-label="Sort AI candidates"
+            >
+              <option value="newest">Newest</option>
+              <option value="shortest">Shortest</option>
+              <option value="longest">Longest</option>
+              <option value="alpha">A–Z</option>
+            </select>
           </div>
-        ) : (
-          filtered.map(
-            (attempt, index) => {
-              const currentAttemptIsBeingAccepted =
-                acceptingAttemptId ===
-                attempt?.id;
+        </div>
+      </section>
 
-              const correctAnswer =
-                getCorrectAnswerLabel(
-                  attempt
-                );
+      {!filtered.length ? (
+        <div className="rounded-2xl border border-dashed border-[#D8DDE8] bg-white px-5 py-14 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F1F3F9] text-[#8993A6]">
+            <Search size={19} />
+          </div>
+          <h3 className="mt-4 text-sm font-semibold text-[#344054]">
+            No matching candidates
+          </h3>
+          <p className="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-[#8490A3]">
+            Try another search term or reset the filters to view the full batch.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              setPattern('all');
+              setLength('all');
+              setSort('newest');
+            }}
+            className="mt-4 inline-flex h-9 items-center justify-center rounded-lg border border-[#D9DDF0] bg-white px-3.5 text-xs font-semibold text-[#5D52B6] transition hover:bg-[#F8F7FF]"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map((attempt, index) => {
+            const currentAttemptIsBeingAccepted =
+              acceptingAttemptId === attempt?.id;
+            const correctAnswer = getCorrectAnswerLabel(attempt);
+            const isFreeText = attempt.question_type === 'FREE_TEXT';
 
-              return (
+            return (
+              <article
+                key={attempt.id}
+                className="group relative overflow-hidden rounded-2xl border border-[#E4E7EE] bg-white shadow-[0_2px_10px_rgba(24,32,51,0.025)] transition-all duration-300 ease-out hover:-translate-y-1 hover:border-[#CFCBE8] hover:shadow-[0_16px_34px_rgba(35,32,79,0.085)] focus-within:border-[#C6C0ED]"
+              >
                 <div
-                  key={
-                    attempt.id
-                  }
-                  className="py-5"
-                >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -right-14 -top-14 h-36 w-36 rounded-full bg-[#F4F2FF] opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+                />
 
-                    <div className="min-w-0 flex-1">
-
-                      <div className="flex flex-wrap items-center gap-2">
-
-                        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#8A94A8]">
-                          Candidate{" "}
-                          {index +
-                            1}
-                        </span>
-
-                        <span className="text-[10px] text-[#98A2B3]">
-                          Generation #
-                          {
-                            attempt.attempt_number
-                          }
-                        </span>
-
-                        <span className="rounded-full bg-[#F1EEFF] px-2 py-1 text-[9px] font-semibold text-[#5E4DA3]">
-                          {inferCandidatePattern(
-                            attempt
-                          )}
-                        </span>
+                <div className="relative p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="flex min-w-0 flex-1 items-start gap-3.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#E2E5EC] bg-white text-[11px] font-semibold tabular-nums text-[#687385] transition-colors duration-200 group-hover:border-[#CBC6E9] group-hover:bg-[#F8F7FE] group-hover:text-[#5D52B6]">
+                        {String(index + 1).padStart(2, '0')}
                       </div>
 
-                      <p className="mt-2 text-sm font-medium leading-6 text-[#263042]">
-                        {
-                          attempt.question_text
-                        }
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.11em] text-[#6B7484]">
+                            Candidate {index + 1}
+                          </span>
+                          <span className="text-[10px] text-[#98A2B3]">
+                            Run #{attempt.attempt_number}
+                          </span>
+                          <span className="rounded-md border border-[#E4E6EC] bg-[#F8F9FB] px-2 py-1 text-[9px] font-medium text-[#606B7C]">
+                            {inferCandidatePattern(attempt)}
+                          </span>
+                          <span className="rounded-md border border-[#E4E6EC] bg-white px-2 py-1 text-[9px] font-medium text-[#798394]">
+                            {isFreeText ? 'Open response' : 'Multiple choice'}
+                          </span>
+                        </div>
 
-                      {attempt.question_type !==
-                        "FREE_TEXT" &&
-                        Array.isArray(
-                          attempt.options
-                        ) && (
-                          <div className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
-
-                            {attempt.options
-                              .slice(
-                                0,
-                                4
-                              )
-                              .map(
-                                (
-                                  option,
-                                  optionIndex
-                                ) => {
-                                  const isCorrect =
-                                    correctAnswer?.index ===
-                                    optionIndex;
-
-                                  return (
-                                    <div
-                                      key={`${option}-${optionIndex}`}
-                                      className={`rounded-md border px-2.5 py-2 text-[10px] leading-5 ${
-                                        isCorrect
-                                          ? "border-[#B9DEC9] bg-[#F3FBF6] text-[#28734E]"
-                                          : "border-transparent text-[#667085]"
-                                      }`}
-                                    >
-                                      <span className="mr-1.5 font-semibold">
-                                        {String.fromCharCode(
-                                          65 +
-                                            optionIndex
-                                        )}
-                                        .
-                                      </span>
-
-                                      {
-                                        option
-                                      }
-                                    </div>
-                                  );
-                                }
-                              )}
-                          </div>
-                        )}
+                        <div className="mt-2.5 text-sm leading-6 text-[#202938] sm:text-[15px] sm:leading-7">
+                          <QuestionText text={attempt.question_text} />
+                        </div>
+                      </div>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() =>
-                        onAccept(
-                          attempt
-                        )
-                      }
-                      disabled={
-                        currentAttemptIsBeingAccepted
-                      }
-                      className="inline-flex h-9 shrink-0 items-center gap-1.5 bg-[#6658D7] px-3.5 text-[10px] font-semibold text-white disabled:opacity-50"
+                      onClick={() => onAccept(attempt)}
+                      disabled={currentAttemptIsBeingAccepted}
+                      className="group/accept inline-flex h-9 shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-[#DAD7F4] bg-white px-3.5 text-[11px] font-semibold text-[#5D52B6] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#BDB6E8] hover:bg-[#F8F7FE] hover:shadow-[0_5px_14px_rgba(49,42,109,0.08)] active:translate-y-0 focus:outline-none focus:ring-4 focus:ring-[#6658D7]/12 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 md:mt-0"
                     >
                       {currentAttemptIsBeingAccepted ? (
-                        <RefreshCw
-                          size={12}
-                          className="animate-spin"
-                        />
+                        <RefreshCw size={13} className="animate-spin" />
                       ) : (
-                        <Check
-                          size={12}
-                        />
+                        <Check size={14} />
                       )}
-
-                      {currentAttemptIsBeingAccepted
-                        ? "Using..."
-                        : "Use this question"}
+                      {currentAttemptIsBeingAccepted ? 'Using...' : 'Use question'}
+                      {!currentAttemptIsBeingAccepted && (
+                        <ArrowRight size={12} className="transition-transform duration-200 group-hover/accept:translate-x-0.5" />
+                      )}
                     </button>
-
                   </div>
+
+                  {!isFreeText && Array.isArray(attempt.options) && (
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      {attempt.options.slice(0, 4).map((option, optionIndex) => {
+                        const isCorrect = correctAnswer?.index === optionIndex;
+                        const optionLetter = String.fromCharCode(65 + optionIndex);
+
+                        return (
+                          <div
+                            key={`${option}-${optionIndex}`}
+                            className={`flex min-w-0 items-start gap-3 rounded-xl border px-3.5 py-3 text-xs leading-5 transition-all duration-200 ${
+                              isCorrect
+                                ? 'border-[#B9DEC9] bg-[#F3FAF5] text-[#28734E] hover:border-[#9DCFB1] hover:bg-[#EDF8F1]'
+                                : 'border-[#E8EAF0] bg-white text-[#667085] hover:border-[#D4D8E4] hover:bg-[#FAFBFD] hover:shadow-[0_3px_10px_rgba(24,32,51,0.035)]'
+                            }`}
+                          >
+                            <span
+                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold transition-colors ${
+                                isCorrect
+                                  ? 'bg-[#DDF2E5] text-[#28734E]'
+                                  : 'border border-[#E4E7ED] bg-white text-[#7B8798] group-hover:border-[#DADDE7]'
+                              }`}
+                            >
+                              {optionLetter}
+                            </span>
+                            <span className="min-w-0 flex-1 pt-0.5">
+                              <QuestionText text={option} className="text-xs leading-5" />
+                            </span>
+                            {isCorrect && (
+                              <span className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-[9px] font-semibold text-[#28734E]">
+                                <CheckCircle2 size={12} />
+                                Correct answer
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isFreeText && (
+                    <div className="mt-4 flex items-center gap-2 rounded-xl border border-dashed border-[#DDE2EA] bg-[#FAFBFC] px-3.5 py-3 text-[11px] text-[#7A8498]">
+                      <FilePlus2 size={14} className="shrink-0 text-[#7A8498]" />
+                      Open-ended response — no fixed answer choices.
+                    </div>
+                  )}
                 </div>
-              );
-            }
-          )
-        )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E9ECF2] pt-3 text-[10px] text-[#98A2B3]">
+        <span>AI candidates are drafts until you explicitly accept one.</span>
+        <span className="font-medium tabular-nums">{filtered.length} displayed</span>
       </div>
     </div>
   );
@@ -5148,99 +5395,99 @@ function CandidateReview({
   accepting,
   onAccept,
 }) {
-  const attempt =
-    candidateReview.attempt;
-
-  const correctAnswer =
-    getCorrectAnswerLabel(
-      attempt
-    );
+  const attempt = candidateReview.attempt;
+  const correctAnswer = getCorrectAnswerLabel(attempt);
+  const isFreeText = attempt?.question_type === 'FREE_TEXT';
 
   return (
-    <div>
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-[#E3DFFC] bg-gradient-to-br from-[#FAF9FF] to-white p-4 sm:p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-[#E3DFFC] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.1em] text-[#5D52B6]">
+            AI-generated draft
+          </span>
+          {attempt?.attempt_number != null && (
+            <span className="text-[10px] text-[#8992A5]">
+              Generation #{attempt.attempt_number}
+            </span>
+          )}
+          <span className="rounded-full border border-[#E5E8EF] bg-white px-2.5 py-1 text-[9px] font-medium text-[#758195]">
+            {isFreeText ? 'Open response' : 'Multiple choice'}
+          </span>
+        </div>
 
-      <h3 className="text-base font-semibold leading-6 text-[#202938]">
-        {
-          attempt?.question_text
-        }
-      </h3>
+        <div className="mt-4 text-base leading-7 text-[#202938] sm:text-[17px]">
+          <QuestionText text={attempt?.question_text} />
+        </div>
+      </div>
 
-      {attempt?.question_type !==
-        "FREE_TEXT" && (
-        <div className="mt-4 space-y-2">
+      {isFreeText ? (
+        <div className="flex items-start gap-3 rounded-xl border border-[#E5E8EF] bg-[#FAFBFD] p-4 text-xs leading-5 text-[#667085]">
+          <FilePlus2 size={16} className="mt-0.5 shrink-0 text-[#7A6BC8]" />
+          <p>This is an open-ended question. The candidate will write a response rather than choose from fixed options.</p>
+        </div>
+      ) : (
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold text-[#344054]">Answer choices</h4>
+            {correctAnswer?.index != null && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#B9DEC9] bg-[#F2FAF5] px-2.5 py-1 text-[9px] font-semibold text-[#28734E]">
+                <CheckCircle2 size={12} />
+                Correct answer indicated
+              </span>
+            )}
+          </div>
 
-          {(attempt?.options ||
-            []
-          ).map(
-            (
-              option,
-              index
-            ) => {
-              const isCorrect =
-                correctAnswer?.index ===
-                index;
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(attempt?.options || []).map((option, index) => {
+              const isCorrect = correctAnswer?.index === index;
 
               return (
                 <div
                   key={`${option}-${index}`}
-                  className={`border px-3 py-2.5 text-xs ${
+                  className={`flex min-w-0 items-start gap-3 rounded-xl border px-3.5 py-3.5 text-xs leading-5 ${
                     isCorrect
-                      ? "border-[#B9DEC9] bg-[#F3FBF6] text-[#28734E]"
-                      : "border-[#E5E7EB] text-[#475467]"
+                      ? 'border-[#B9DEC9] bg-[#F2FAF5] text-[#28734E]'
+                      : 'border-[#E5E8EF] bg-white text-[#566273]'
                   }`}
                 >
-                  <span className="mr-2 font-semibold">
-                    {String.fromCharCode(
-                      65 +
-                        index
-                    )}
-                    .
+                  <span
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
+                      isCorrect
+                        ? 'bg-[#DDF2E5] text-[#28734E]'
+                        : 'bg-[#F4F6FA] text-[#758195]'
+                    }`}
+                  >
+                    {String.fromCharCode(65 + index)}
                   </span>
-
-                  {
-                    option
-                  }
-
-                  {isCorrect && (
-                    <span className="ml-2 font-semibold">
-                      Correct
-                    </span>
-                  )}
+                  <span className="min-w-0 flex-1 pt-1">
+                    <QuestionText text={option} className="text-xs leading-5" />
+                  </span>
+                  {isCorrect && <CheckCircle2 size={15} className="mt-1 shrink-0" />}
                 </div>
               );
-            }
-          )}
+            })}
+          </div>
         </div>
       )}
 
-      <div className="mt-6 flex justify-end border-t border-[#E5E7EB] pt-4">
-
+      <div className="flex flex-col-reverse gap-3 border-t border-[#E9ECF2] pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="max-w-md text-[10px] leading-5 text-[#8992A5]">
+          Accepting makes this the current question for the slot. You can still review its status in the workspace.
+        </p>
         <button
           type="button"
-          onClick={
-            onAccept
-          }
-          disabled={
-            accepting
-          }
-          className="inline-flex h-10 items-center gap-2 bg-[#6658D7] px-4 text-xs font-semibold text-white disabled:opacity-50"
+          onClick={onAccept}
+          disabled={accepting}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#6658D7] px-4 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(102,88,215,0.16)] transition hover:-translate-y-0.5 hover:bg-[#584BC7] focus:outline-none focus:ring-4 focus:ring-[#6658D7]/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
           {accepting ? (
-            <RefreshCw
-              size={13}
-              className="animate-spin"
-            />
+            <RefreshCw size={13} className="animate-spin" />
           ) : (
-            <Check
-              size={13}
-            />
+            <Check size={14} />
           )}
-
-          {accepting
-            ? "Using question…"
-            : "Use this question"}
+          {accepting ? 'Using question…' : 'Accept this question'}
         </button>
-
       </div>
     </div>
   );
@@ -5256,92 +5503,104 @@ function QuestionSourceList({
 }) {
   if (loading) {
     return (
-      <div className="flex min-h-[260px] items-center justify-center text-sm text-[#667085]">
-        <RefreshCw
-          size={16}
-          className="mr-2 animate-spin"
-        />
-        Loading matching questions…
+      <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-[#667085]" aria-live="polite">
+        <RefreshCw size={16} className="animate-spin text-[#6658D7]" />
+        Finding approved questions for this skill…
       </div>
     );
   }
 
   if (!questions.length) {
     return (
-      <div className="py-14 text-center text-sm text-[#667085]">
-        {
-          emptyMessage
-        }
+      <div className="rounded-xl border border-dashed border-[#D8DEE8] bg-[#FAFBFD] px-6 py-12 text-center">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#7A8498] ring-1 ring-inset ring-[#E4E8EF]">
+          <Search size={17} />
+        </div>
+        <p className="mt-3 text-sm font-semibold text-[#344054]">
+          No matching approved questions
+        </p>
+        <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-[#7A8498]">
+          {emptyMessage}
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 max-h-[58vh] overflow-y-auto">
+    <div className="mt-4 max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+      {questions.map((question) => (
+        <article
+          key={`${historical ? "h" : "b"}-${question.id}-${question.assessment_id || ""}`}
+          className="group/source rounded-xl border border-[#E5E8EF] bg-white p-4 transition-all duration-200 hover:-translate-y-px hover:border-[#CEC7EE] hover:bg-[#FEFDFF] hover:shadow-[0_8px_20px_rgba(38,40,79,0.05)]"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {historical ? (
+                  <span className="rounded-full bg-[#F3F5F9] px-2.5 py-1 text-[9px] font-semibold text-[#596579]">
+                    {question.source_year || "Previous year"}
+                  </span>
+                ) : showBankMeta ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F0F8F3] px-2.5 py-1 text-[9px] font-semibold text-[#28734E]">
+                    <CheckCircle2 size={10} />
+                    {question.confirmed_set_label
+                      ? `Confirmed · ${question.confirmed_set_label}`
+                      : question.confirmed_set_variant
+                        ? `Confirmed · Set ${String.fromCharCode(64 + Number(question.confirmed_set_variant))}`
+                        : "Approved question bank"}
+                  </span>
+                ) : null}
 
-      <div className="divide-y divide-[#EEF0F3] border-y border-[#EEF0F3]">
+                {question.status === "approved" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#F0F8F3] px-2.5 py-1 text-[9px] font-semibold text-[#28734E]">
+                    <CheckCircle2 size={10} /> Approved
+                  </span>
+                )}
 
-        {questions.map(
-          (question) => (
-            <div
-              key={`${historical ? "h" : "b"}-${question.id}-${question.assessment_id || ""}`}
-              className="grid gap-4 py-4 lg:grid-cols-[minmax(0,1fr)_220px]"
-            >
-              <div className="min-w-0">
+                {question.difficulty && (
+                  <span className="rounded-full bg-[#F7F8FA] px-2.5 py-1 text-[9px] font-medium capitalize text-[#667085]">
+                    {DIFFICULTY_LABELS[question.difficulty] || question.difficulty}
+                  </span>
+                )}
 
-                <div className="flex flex-wrap items-center gap-2">
-
-                  {historical ? (
-                    <span className="px-2 py-1 text-[9px] font-semibold bg-[#EEF6FF] text-[#3E6098]">
-                      {
-                        question.source_year ||
-                        "Previous year"
-                      }
-                    </span>
-                  ) : showBankMeta ? (
-                    <span className="px-2 py-1 text-[9px] font-semibold bg-[#F1EEFF] text-[#5E4DA3]">
-                      Current bank
-                    </span>
-                  ) : null}
-
-                  {question.status ===
-                    "approved" && (
-                    <span className="px-2 py-1 text-[9px] font-semibold bg-[#F2FAF5] text-[#28734E]">
-                      Approved
-                    </span>
-                  )}
-                </div>
-
-                <p className="mt-2 text-sm font-semibold leading-5 text-[#263042]">
-                  {
-                    question.question_text
-                  }
-                </p>
+                {question.question_type && (
+                  <span className="rounded-full bg-[#F7F8FA] px-2.5 py-1 text-[9px] font-medium text-[#667085]">
+                    {String(question.question_type).toUpperCase() === "FREE_TEXT" ? "Free text" : "Multiple choice"}
+                  </span>
+                )}
               </div>
 
-              <div className="flex items-center justify-end">
+              <QuestionText
+                text={question.question_text}
+                className="mt-3 text-sm leading-6 text-[#273142]"
+              />
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    onUse(
-                      question
-                    )
-                  }
-                  className="inline-flex h-9 items-center gap-2 border border-[#6658D7] px-3 text-[10px] font-semibold text-[#5146B2]"
-                >
-                  <Check
-                    size={12}
-                  />
-                  Use in slot
-                </button>
-
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="inline-flex items-center gap-1.5 text-[10px] text-[#7A8498]">
+                  <span className="font-medium text-[#98A2B3]">Manager</span>
+                  <StaticStarRating value={question.manager_rating} label="Manager rating" />
+                  <span className="tabular-nums">{question.manager_rating ? `${question.manager_rating}/3` : "—"}</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[10px] text-[#7A8498]">
+                  <span className="font-medium text-[#98A2B3]">Reviewer</span>
+                  <StaticStarRating value={question.reviewer_rating} label="Reviewer rating" />
+                  <span className="tabular-nums">{question.reviewer_rating ? `${question.reviewer_rating}/3` : "—"}</span>
+                </span>
               </div>
             </div>
-          )
-        )}
 
-      </div>
+            <button
+              type="button"
+              onClick={() => onUse(question)}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-[#D9D4F2] bg-white px-3.5 text-[10px] font-semibold text-[#5146B2] transition duration-200 hover:-translate-y-0.5 hover:border-[#BEB5E9] hover:bg-[#F7F5FF] focus:outline-none focus:ring-4 focus:ring-[#6658D7]/10"
+            >
+              <Check size={12} />
+              Use in slot
+              <ArrowRight size={12} className="transition-transform group-hover/source:translate-x-0.5" />
+            </button>
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -5733,55 +5992,48 @@ function Modal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#111429]/38 p-4 backdrop-blur-[2px]">
-
+    <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-[#111429]/45 p-2 backdrop-blur-[4px] sm:p-4">
       <div
-        className={`max-h-[92vh] w-full overflow-hidden border border-[#DDE1E8] bg-white shadow-[0_30px_90px_rgba(25,28,55,0.22)] ${
-          wide
-            ? "max-w-6xl"
-            : "max-w-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`my-auto flex max-h-[94vh] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_32px_100px_rgba(20,22,48,0.28)] sm:rounded-[24px] ${
+          wide ? "max-w-6xl" : "max-w-2xl"
         }`}
       >
-
-        <div className="flex items-start justify-between gap-4 border-b border-[#E5E7EB] px-5 py-4 sm:px-6">
-
-          <div className="min-w-0 flex-1">
-
-            <div className="flex flex-wrap items-start gap-3">
-
-              <div className="min-w-0 flex-1">
-
-                <h2 className="text-lg font-semibold text-[#202938]">
-                  {title}
-                </h2>
-
-                {subtitle && (
-                  <p className="mt-1 max-w-3xl text-xs leading-5 text-[#7A8498]">
-                    {
-                      subtitle
-                    }
-                  </p>
-                )}
+        <div className="shrink-0 border-b border-[#E9ECF2] bg-gradient-to-r from-[#FBFAFF] via-white to-[#F8FAFF] px-4 py-4 sm:px-6 sm:py-5">
+          <div className="flex items-start justify-between gap-3 sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ECE9FF] text-[#6658D7] ring-1 ring-inset ring-[#E0DBFF]">
+                  <Sparkles size={17} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base font-semibold tracking-[-0.02em] text-[#202938] sm:text-lg">
+                    {title}
+                  </h2>
+                  {subtitle && (
+                    <p className="mt-1.5 max-w-3xl text-xs leading-5 text-[#7A8498]">
+                      {subtitle}
+                    </p>
+                  )}
+                </div>
+                {headerAction}
               </div>
-
-              {headerAction}
             </div>
-          </div>
 
-          <button
-            type="button"
-            onClick={
-              onClose
-            }
-            className="flex h-8 w-8 shrink-0 items-center justify-center text-[#667085] hover:bg-[#F5F6F8]"
-          >
-            <X
-              size={17}
-            />
-          </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close dialog"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#E5E8EF] bg-white text-[#7B8798] transition hover:border-[#D5D9E4] hover:bg-[#F7F8FB] hover:text-[#344054] focus:outline-none focus:ring-4 focus:ring-[#6658D7]/10"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
-        <div className="max-h-[calc(92vh-90px)] overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {children}
         </div>
       </div>

@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
 } from "react";
-
 import {
   Bell,
   CheckCheck,
@@ -18,62 +17,45 @@ import {
   ArrowRight,
   X,
 } from "lucide-react";
-
 import { useNavigate } from "react-router-dom";
-
 import { useAuth } from "../context/AuthContext";
-
 import api from "../services/api";
 import { useTheme } from "../context/ThemeContext";
-
 const NOTIFICATION_REFRESH_MS = 30000;
-
 /* ============================================================
    NOTIFICATION HELPERS
 ============================================================ */
-
 function formatNotificationTime(value) {
   if (!value) {
     return "";
   }
-
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-
   const diffMs =
     Date.now() - date.getTime();
-
   const diffMinutes = Math.floor(
     diffMs / 60000
   );
-
   if (diffMinutes < 1) {
     return "Just now";
   }
-
   if (diffMinutes < 60) {
     return `${diffMinutes}m ago`;
   }
-
   const diffHours = Math.floor(
     diffMinutes / 60
   );
-
   if (diffHours < 24) {
     return `${diffHours}h ago`;
   }
-
   const diffDays = Math.floor(
     diffHours / 24
   );
-
   if (diffDays < 7) {
     return `${diffDays}d ago`;
   }
-
   return date.toLocaleDateString(
     undefined,
     {
@@ -83,19 +65,16 @@ function formatNotificationTime(value) {
     }
   );
 }
-
 function getNotificationIcon(
   notificationType
 ) {
   switch (notificationType) {
     case "JOB_COLLABORATION_ASSIGNED":
       return UserCheck;
-
     default:
       return Mail;
   }
 }
-
 function getNotificationIconStyles(
   notificationType
 ) {
@@ -105,7 +84,6 @@ function getNotificationIconStyles(
         background: "#EAE5F9",
         color: "#7862C8",
       };
-
     default:
       return {
         background: "#CFDEFC",
@@ -113,23 +91,17 @@ function getNotificationIconStyles(
       };
   }
 }
-
 function getRoleLabel(role) {
   const labels = {
     recruiter: "HR",
-
     organization_admin:
       "Organization Administrator",
-
     assessment_manager:
       "Assessment Manager",
-
     assessment_reviewer:
       "Assessment Reviewer",
-
     candidate: "Candidate",
   };
-
   return (
     labels[role] ||
     role
@@ -142,11 +114,9 @@ function getRoleLabel(role) {
     "User"
   );
 }
-
 /* ============================================================
    SEARCH HELPERS
 ============================================================ */
-
 function getSearchSources(role) {
   if (role === "recruiter") {
     return [
@@ -154,7 +124,6 @@ function getSearchSources(role) {
       "question_banks",
     ];
   }
-
   if (
     role === "assessment_manager"
   ) {
@@ -163,7 +132,6 @@ function getSearchSources(role) {
       "question_banks",
     ];
   }
-
   if (
     role === "assessment_reviewer"
   ) {
@@ -171,10 +139,8 @@ function getSearchSources(role) {
       "question_banks",
     ];
   }
-
   return [];
 }
-
 function normalizeSearchResponse(
   data
 ) {
@@ -182,7 +148,6 @@ function normalizeSearchResponse(
     ? data
     : [];
 }
-
 function buildSearchResults(
   source,
   records,
@@ -191,7 +156,6 @@ function buildSearchResults(
   if (!Array.isArray(records)) {
     return [];
   }
-
   if (source === "jobs") {
     return records.map((job) => ({
       type: "job",
@@ -211,7 +175,6 @@ function buildSearchResults(
         `/jobs/${job.id}`,
     }));
   }
-
   if (
     source === "assigned_jobs"
   ) {
@@ -230,7 +193,6 @@ function buildSearchResults(
         `/manager/jobs/${job.id}/review`,
     }));
   }
-
   if (
     source === "question_banks"
   ) {
@@ -251,7 +213,6 @@ function buildSearchResults(
         `/question-banks`,
     }));
   }
-
   if (
     source === "questions"
   ) {
@@ -275,21 +236,17 @@ function buildSearchResults(
       })
     );
   }
-
   return [];
 }
-
 function matchesSearch(
   item,
   query
 ) {
   const normalizedQuery =
     query.trim().toLowerCase();
-
   if (!normalizedQuery) {
     return true;
   }
-
   const haystack = [
     item.title,
     item.meta,
@@ -302,16 +259,13 @@ function matchesSearch(
     )
     .join(" ")
     .toLowerCase();
-
   return haystack.includes(
     normalizedQuery
   );
 }
-
 /* ============================================================
    TOPBAR
 ============================================================ */
-
 function Topbar({
   title = "Dashboard",
   breadcrumb = "Workspace",
@@ -321,18 +275,13 @@ function Topbar({
     logout,
     updateProfile,
   } = useAuth();
-
   const { theme, setTheme } = useTheme();
-
   const navigate =
     useNavigate();
-
   const role =
     auth?.role || "user";
-
   const displayRole =
     getRoleLabel(role);
-
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [profile, setProfile] = useState({
@@ -343,6 +292,11 @@ function Topbar({
   const [profileForm, setProfileForm] = useState({
     full_name: "",
     username: "",
+    phone_number: "",
+    job_title: "",
+    department: "",
+    location: "",
+    bio: "",
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -351,15 +305,12 @@ function Topbar({
   const [profilePhotoVersion, setProfilePhotoVersion] = useState(0);
   const [profilePhotoBusy, setProfilePhotoBusy] = useState(false);
   const profilePhotoInputRef = useRef(null);
-
-
   const displayName =
     profile.full_name?.trim() ||
     auth?.full_name?.trim() ||
     profile.username ||
     auth?.username ||
     "User";
-
   useEffect(() => {
     let active = true;
     const fallback = {
@@ -367,12 +318,10 @@ function Topbar({
       username: auth?.username || "",
       email: auth?.email || "",
     };
-
     if (!auth?.access_token) {
       setProfile(fallback);
       return () => { active = false; };
     }
-
     api.get("/auth/me")
       .then((response) => {
         if (active) {
@@ -383,7 +332,6 @@ function Topbar({
       .catch(() => {
         if (active) setProfile(fallback);
       });
-
     return () => { active = false; };
   }, [
     auth?.access_token,
@@ -392,21 +340,16 @@ function Topbar({
     auth?.full_name,
     auth?.email,
   ]);
-
-
   useEffect(() => {
     if (!auth?.access_token || !profile?.has_profile_photo) {
       setProfilePhotoUrl("");
       return undefined;
     }
-
     let active = true;
     let createdObjectUrl = "";
-
     api.get("/auth/me/avatar", { responseType: "blob" })
       .then(({ data }) => {
         if (!active || !data || data.size === 0) return;
-
         createdObjectUrl = URL.createObjectURL(data);
         if (active) {
           setProfilePhotoUrl(createdObjectUrl);
@@ -415,34 +358,40 @@ function Topbar({
       .catch(() => {
         if (active) setProfilePhotoUrl("");
       });
-
     return () => {
       active = false;
       if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
     };
   }, [auth?.access_token, auth?.user_id, profile?.has_profile_photo, profilePhotoVersion]);
-
   const openProfileEditor = () => {
     setProfileForm({
       full_name: profile.full_name || auth?.full_name || "",
       username: profile.username || auth?.username || "",
+      phone_number: profile.phone_number || "",
+      job_title: profile.job_title || "",
+      department: profile.department || "",
+      location: profile.location || "",
+      bio: profile.bio || "",
     });
     setProfileError("");
     setProfileSaved(false);
     setProfileEditorOpen(true);
     setProfileOpen(false);
   };
-
   const handleProfileSave = async (event) => {
     event.preventDefault();
     setProfileSaving(true);
     setProfileError("");
     setProfileSaved(false);
-
     try {
       const response = await api.patch("/auth/me", {
         full_name: profileForm.full_name.trim(),
         username: profileForm.username.trim(),
+        phone_number: profileForm.phone_number.trim(),
+        job_title: profileForm.job_title.trim(),
+        department: profileForm.department.trim(),
+        location: profileForm.location.trim(),
+        bio: profileForm.bio.trim(),
       });
       setProfile(response.data);
       updateProfile(response.data);
@@ -458,29 +407,23 @@ function Topbar({
       setProfileSaving(false);
     }
   };
-
-
-
   const handleProfilePhotoChange = async (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
     input.value = "";
-
     if (!file) return;
-
     if (file.size > 5 * 1024 * 1024) {
       setProfileError("Choose an image that is 5 MB or smaller.");
       return;
     }
-
     setProfilePhotoBusy(true);
     setProfileError("");
-
     try {
       const formData = new FormData();
       formData.append("file", file);
-
-      await api.post("/auth/me/avatar", formData);
+      await api.post("/auth/me/avatar", formData, {
+        headers: { "Content-Type": undefined },
+      });
       setProfile((current) => ({
         ...current,
         has_profile_photo: true,
@@ -488,20 +431,35 @@ function Topbar({
       setProfilePhotoVersion((version) => version + 1);
     } catch (error) {
       const detail = error?.response?.data?.detail;
-      setProfileError(
-        typeof detail === "string"
+
+      console.error("Profile photo upload failed:", {
+        status: error?.response?.status,
+        response: error?.response?.data,
+        message: error?.message,
+      });
+
+      const message = Array.isArray(detail)
+        ? detail
+            .map((item) => {
+              const location = Array.isArray(item.loc)
+                ? item.loc.join(".")
+                : "request";
+
+              return `${location}: ${item.msg ?? "Invalid value"}`;
+            })
+            .join("; ")
+        : typeof detail === "string"
           ? detail
-          : "Unable to upload the profile photo. Please try again."
-      );
+          : "Unable to upload the profile photo. Please try again.";
+
+      setProfileError(message);
     } finally {
       setProfilePhotoBusy(false);
     }
   };
-
   const handleProfilePhotoRemove = async () => {
     setProfilePhotoBusy(true);
     setProfileError("");
-
     try {
       await api.delete("/auth/me/avatar");
       setProfile((current) => ({
@@ -520,85 +478,67 @@ function Topbar({
       setProfilePhotoBusy(false);
     }
   };
-
   /* ==========================================================
      NOTIFICATIONS
   ========================================================== */
-
   const [
     notifications,
     setNotifications,
   ] = useState([]);
-
   const [
     unreadCount,
     setUnreadCount,
   ] = useState(0);
-
   const [
     notificationOpen,
     setNotificationOpen,
   ] = useState(false);
-
   const [
     notificationsLoading,
     setNotificationsLoading,
   ] = useState(false);
-
   const [
     notificationActionLoading,
     setNotificationActionLoading,
   ] = useState(false);
-
   const [
     notificationError,
     setNotificationError,
   ] = useState("");
-
   /* ==========================================================
      SEARCH
   ========================================================== */
-
   const [
     searchQuery,
     setSearchQuery,
   ] = useState("");
-
   const [
     searchResults,
     setSearchResults,
   ] = useState([]);
-
   const [
     searchOpen,
     setSearchOpen,
   ] = useState(false);
-
   const [
     searchLoading,
     setSearchLoading,
   ] = useState(false);
-
   const [
     searchError,
     setSearchError,
   ] = useState("");
-
   const [
     searchFocused,
     setSearchFocused,
   ] = useState(false);
-
   const notificationRef =
     useRef(null);
-
   const searchRef =
     useRef(null);
-
   /* ==========================================================
      AUTH ERROR HANDLER
   ========================================================== */
-
   const handleAuthError = (
     error
   ) => {
@@ -607,17 +547,13 @@ function Topbar({
       401
     ) {
       logout();
-
       return true;
     }
-
     return false;
   };
-
   /* ==========================================================
      LOAD UNREAD COUNT
   ========================================================== */
-
   const loadUnreadCount =
     async () => {
       if (
@@ -626,13 +562,11 @@ function Topbar({
         setUnreadCount(0);
         return;
       }
-
       try {
         const response =
           await api.get(
             "/notifications/unread-count"
           );
-
         setUnreadCount(
           Number(
             response.data
@@ -644,17 +578,14 @@ function Topbar({
           "Failed to load notification count:",
           error
         );
-
         handleAuthError(
           error
         );
       }
     };
-
   /* ==========================================================
      LOAD NOTIFICATIONS
   ========================================================== */
-
   const loadNotifications =
     async (
       showLoading = true
@@ -666,37 +597,30 @@ function Topbar({
         setUnreadCount(0);
         return;
       }
-
       try {
         if (showLoading) {
           setNotificationsLoading(
             true
           );
         }
-
         setNotificationError("");
-
         const response =
           await api.get(
             "/notifications?limit=20"
           );
-
         const data =
           Array.isArray(
             response.data
           )
             ? response.data
             : [];
-
         setNotifications(data);
-
         const unread =
           data.filter(
             (item) =>
               item?.is_read ===
               false
           ).length;
-
         setUnreadCount(
           unread
         );
@@ -705,7 +629,6 @@ function Topbar({
           "Failed to load notifications:",
           error
         );
-
         if (
           handleAuthError(
             error
@@ -713,7 +636,6 @@ function Topbar({
         ) {
           return;
         }
-
         setNotificationError(
           error?.response?.data
             ?.detail ||
@@ -727,11 +649,9 @@ function Topbar({
         }
       }
     };
-
   /* ==========================================================
      NOTIFICATION REFRESH
   ========================================================== */
-
   useEffect(() => {
     if (
       !auth?.access_token
@@ -740,9 +660,7 @@ function Topbar({
       setUnreadCount(0);
       return;
     }
-
     loadUnreadCount();
-
     const intervalId =
       window.setInterval(
         () => {
@@ -750,7 +668,6 @@ function Topbar({
         },
         NOTIFICATION_REFRESH_MS
       );
-
     return () => {
       window.clearInterval(
         intervalId
@@ -759,11 +676,9 @@ function Topbar({
   }, [
     auth?.access_token,
   ]);
-
   /* ==========================================================
      CLOSE NOTIFICATION ON OUTSIDE CLICK
   ========================================================== */
-
   useEffect(() => {
     const handleOutsideClick =
       (event) => {
@@ -778,12 +693,10 @@ function Topbar({
           );
         }
       };
-
     document.addEventListener(
       "mousedown",
       handleOutsideClick
     );
-
     return () => {
       document.removeEventListener(
         "mousedown",
@@ -791,11 +704,9 @@ function Topbar({
       );
     };
   }, []);
-
   /* ==========================================================
      CLOSE SEARCH ON OUTSIDE CLICK
   ========================================================== */
-
   useEffect(() => {
     const handleOutsideClick =
       (event) => {
@@ -809,12 +720,10 @@ function Topbar({
           setSearchFocused(false);
         }
       };
-
     document.addEventListener(
       "mousedown",
       handleOutsideClick
     );
-
     return () => {
       document.removeEventListener(
         "mousedown",
@@ -822,22 +731,18 @@ function Topbar({
       );
     };
   }, []);
-
   /* ==========================================================
      SEARCH
   ========================================================== */
-
   useEffect(() => {
     const query =
       searchQuery.trim();
-
     if (query.length < 2) {
       setSearchResults([]);
       setSearchError("");
       setSearchLoading(false);
       return undefined;
     }
-
     const timerId =
       window.setTimeout(
         async () => {
@@ -845,17 +750,14 @@ function Topbar({
             getSearchSources(
               role
             );
-
           if (
             sources.length === 0
           ) {
             setSearchResults([]);
             return;
           }
-
           setSearchLoading(true);
           setSearchError("");
-
           try {
             const requests =
               sources.map(
@@ -863,14 +765,12 @@ function Topbar({
                   try {
                     let endpoint =
                       "";
-
                     if (
                       source === "jobs"
                     ) {
                       endpoint =
                         "/jobs";
                     }
-
                     if (
                       source ===
                       "assigned_jobs"
@@ -878,7 +778,6 @@ function Topbar({
                       endpoint =
                         "/question-sets/assigned-jobs";
                     }
-
                     if (
                       source ===
                       "question_banks"
@@ -886,13 +785,11 @@ function Topbar({
                       endpoint =
                         "/question-banks";
                     }
-
                     if (
                       !endpoint
                     ) {
                       return [];
                     }
-
                     const response =
                       await api.get(
                         endpoint,
@@ -900,12 +797,10 @@ function Topbar({
                           timeout: 8000,
                         }
                       );
-
                     const records =
                       normalizeSearchResponse(
                         response.data
                       );
-
                     return buildSearchResults(
                       source,
                       records,
@@ -918,17 +813,14 @@ function Topbar({
                     ) {
                       throw error;
                     }
-
                     return [];
                   }
                 }
               );
-
             const settled =
               await Promise.allSettled(
                 requests
               );
-
             const combined =
               settled.flatMap(
                 (result) =>
@@ -937,7 +829,6 @@ function Topbar({
                     ? result.value
                     : []
               );
-
             const filtered =
               combined
                 .filter(
@@ -948,7 +839,6 @@ function Topbar({
                     )
                 )
                 .slice(0, 8);
-
             setSearchResults(
               filtered
             );
@@ -957,7 +847,6 @@ function Topbar({
               "Global search failed:",
               error
             );
-
             if (
               handleAuthError(
                 error
@@ -965,7 +854,6 @@ function Topbar({
             ) {
               return;
             }
-
             setSearchError(
               "Search is temporarily unavailable."
             );
@@ -977,7 +865,6 @@ function Topbar({
         },
         300
       );
-
     return () => {
       window.clearTimeout(
         timerId
@@ -987,11 +874,9 @@ function Topbar({
     searchQuery,
     role,
   ]);
-
   const handleSearchFocus =
     () => {
       setSearchFocused(true);
-
       if (
         searchQuery.trim()
           .length >= 2
@@ -999,12 +884,10 @@ function Topbar({
         setSearchOpen(true);
       }
     };
-
   const handleSearchChange =
     (event) => {
       const value =
         event.target.value;
-
       setSearchQuery(value);
       setSearchOpen(
         value.trim().length >=
@@ -1012,25 +895,21 @@ function Topbar({
       );
       setSearchError("");
     };
-
   const clearSearch = () => {
     setSearchQuery("");
     setSearchResults([]);
     setSearchError("");
     setSearchOpen(false);
   };
-
   const openSearchResult =
     (result) => {
       setSearchOpen(false);
       setSearchFocused(false);
       setSearchQuery("");
-
       navigate(
         result.path
       );
     };
-
   const handleSearchKeyDown =
     (event) => {
       if (
@@ -1039,12 +918,10 @@ function Topbar({
         clearSearch();
         return;
       }
-
       if (
         event.key === "Enter"
       ) {
         event.preventDefault();
-
         if (
           searchResults.length >
           0
@@ -1055,25 +932,20 @@ function Topbar({
         }
       }
     };
-
   /* ==========================================================
      NOTIFICATION ACTIONS
   ========================================================== */
-
   const toggleNotifications =
     async () => {
       const nextState =
         !notificationOpen;
-
       setNotificationOpen(
         nextState
       );
-
       if (nextState) {
         await loadNotifications();
       }
     };
-
   const markNotificationRead =
     async (
       notificationId
@@ -1082,11 +954,9 @@ function Topbar({
         setNotificationActionLoading(
           true
         );
-
         await api.post(
           `/notifications/${notificationId}/read`
         );
-
         setNotifications(
           (current) =>
             current.map(
@@ -1097,7 +967,6 @@ function Topbar({
                 ) {
                   return notification;
                 }
-
                 return {
                   ...notification,
                   is_read: true,
@@ -1107,7 +976,6 @@ function Topbar({
               }
             )
         );
-
         setUnreadCount(
           (current) =>
             Math.max(
@@ -1120,7 +988,6 @@ function Topbar({
           "Failed to mark notification as read:",
           error
         );
-
         if (
           handleAuthError(
             error
@@ -1128,7 +995,6 @@ function Topbar({
         ) {
           return;
         }
-
         setNotificationError(
           error?.response?.data
             ?.detail ||
@@ -1140,7 +1006,6 @@ function Topbar({
         );
       }
     };
-
   const markAllNotificationsRead =
     async () => {
       if (
@@ -1148,16 +1013,13 @@ function Topbar({
       ) {
         return;
       }
-
       try {
         setNotificationActionLoading(
           true
         );
-
         await api.post(
           "/notifications/read-all"
         );
-
         setNotifications(
           (current) =>
             current.map(
@@ -1170,14 +1032,12 @@ function Topbar({
               })
             )
         );
-
         setUnreadCount(0);
       } catch (error) {
         console.error(
           "Failed to mark all notifications as read:",
           error
         );
-
         if (
           handleAuthError(
             error
@@ -1185,7 +1045,6 @@ function Topbar({
         ) {
           return;
         }
-
         setNotificationError(
           error?.response?.data
             ?.detail ||
@@ -1197,7 +1056,6 @@ function Topbar({
         );
       }
     };
-
   const handleNotificationClick =
     async (
       notification
@@ -1210,60 +1068,44 @@ function Topbar({
         );
       }
     };
-
   const unreadNotifications =
     notifications.filter(
       (notification) =>
         notification?.is_read ===
         false
     );
-
   /* ==========================================================
      RENDER
   ========================================================== */
-
   return (
     <header className="sticky top-0 z-30 h-16 border-b border-[#D7E5EC] bg-white/95 backdrop-blur">
-
       <div className="flex h-full items-center justify-between gap-5 px-5 lg:px-8">
-
         {/* ===================================================
             BREADCRUMB
         =================================================== */}
-
         <div className="min-w-0">
-
           <div className="hidden items-center gap-2 text-xs sm:flex">
-
             <span className="text-[#6F8794]">
               {breadcrumb}
             </span>
-
             <span className="text-[#A9BCC7]">
               /
             </span>
-
             <span className="font-medium text-[#294252]">
               {title}
             </span>
-
           </div>
-
           <h1 className="text-sm font-semibold text-[#142B3A] sm:hidden">
             {title}
           </h1>
-
         </div>
-
         {/* ===================================================
             GLOBAL SEARCH
         =================================================== */}
-
         <div
           ref={searchRef}
           className="relative hidden max-w-[440px] flex-1 md:block"
         >
-
           <div
             className={`flex h-10 items-center rounded-xl border bg-[#F8FBFD] px-3.5 transition duration-200 ${
               searchFocused ||
@@ -1272,7 +1114,6 @@ function Topbar({
                 : "border-[#D7E5EC]"
             }`}
           >
-
             <Search
               size={17}
               className={`shrink-0 transition-colors duration-200 ${
@@ -1281,7 +1122,6 @@ function Topbar({
                   : "text-[#7F98A5]"
               }`}
             />
-
             <input
               type="search"
               value={searchQuery}
@@ -1299,7 +1139,6 @@ function Topbar({
               aria-label="Search jobs, candidates and questions"
               autoComplete="off"
             />
-
             {searchQuery && (
               <button
                 type="button"
@@ -1312,124 +1151,78 @@ function Topbar({
                 <X size={13} />
               </button>
             )}
-
           </div>
-
           {/* =================================================
               SEARCH RESULTS
           ================================================= */}
-
           {searchOpen && (
             <div className="absolute left-0 right-0 top-12 overflow-hidden rounded-[18px] border border-[#DDE1E9] bg-white shadow-[0_22px_55px_rgba(38,40,79,0.15)]">
-
               {/* SEARCH HEADER */}
-
               <div className="border-b border-[#EAECF0] px-4 py-3">
-
                 <div className="flex items-center justify-between gap-3">
-
                   <div>
-
                     <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#7A61D8]">
                       Global search
                     </p>
-
                     <p className="mt-0.5 text-[10px] text-[#98A2B3]">
                       {searchQuery.trim().length < 2
                         ? "Type at least 2 characters."
                         : "Matching workspace content"}
                     </p>
-
                   </div>
-
                   {searchLoading && (
-
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#F0EBFB]">
-
                       <RefreshSmall />
-
                     </div>
                   )}
-
                 </div>
-
               </div>
-
               {/* RESULTS */}
-
               <div className="max-h-[360px] overflow-y-auto">
-
                 {searchLoading &&
                 searchResults.length ===
                   0 ? (
-
                   <div className="px-5 py-10 text-center">
-
                     <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-[#F0EBFB] text-[#7A61D8]">
-
                       <Search size={17} />
-
                     </div>
-
                     <p className="mt-3 text-xs font-semibold text-[#344054]">
                       Searching...
                     </p>
-
                   </div>
-
                 ) : searchError ? (
-
                   <div className="px-5 py-9 text-center">
-
                     <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-[#FFF5F5] text-[#B42318]">
-
                       <X size={17} />
-
                     </div>
-
                     <p className="mt-3 text-xs font-semibold text-[#344054]">
                       Search unavailable
                     </p>
-
                     <p className="mt-1 text-[10px] leading-5 text-[#98A2B3]">
                       {searchError}
                     </p>
-
                   </div>
-
                 ) : searchQuery.trim().length >=
                     2 &&
                   searchResults.length ===
                     0 ? (
-
                   <div className="px-5 py-10 text-center">
-
                     <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-[#F3F4F8] text-[#98A2B3]">
-
                       <Search size={17} />
-
                     </div>
-
                     <p className="mt-3 text-xs font-semibold text-[#344054]">
                       No results found
                     </p>
-
                     <p className="mt-1 text-[10px] leading-5 text-[#98A2B3]">
                       Try a different job title, question bank, or keyword.
                     </p>
-
                   </div>
-
                 ) : (
-
                   <div className="py-1.5">
-
                     {searchResults.map(
                       (result) => {
-
                         const ResultIcon =
                           result.icon;
-
                         return (
                           <button
                             key={`${result.type}-${result.id}`}
@@ -1441,7 +1234,6 @@ function Topbar({
                             }
                             className="group/result flex w-full items-center gap-3 px-4 py-3 text-left transition duration-150 hover:bg-[#FAFBFD]"
                           >
-
                             <span
                               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover/result:scale-105 group-hover/result:-rotate-3"
                               style={{
@@ -1453,71 +1245,51 @@ function Topbar({
                             >
                               <ResultIcon size={15} />
                             </span>
-
                             <span className="min-w-0 flex-1">
-
                               <span className="block truncate text-[11px] font-semibold text-[#344054] group-hover/result:text-[#5658E8]">
                                 {result.title}
                               </span>
-
                               <span className="mt-0.5 block truncate text-[9px] text-[#98A2B3]">
                                 {result.meta}
                               </span>
-
                             </span>
-
                             <ArrowRight
                               size={13}
                               className="shrink-0 text-[#C0C7D2] transition duration-150 group-hover/result:translate-x-0.5 group-hover/result:text-[#5658E8]"
                             />
-
                           </button>
                         );
                       }
                     )}
-
                   </div>
                 )}
-
               </div>
-
               {/* SEARCH FOOTER */}
-
               {searchResults.length >
                 0 && (
-
                 <div className="border-t border-[#EAECF0] bg-[#FAFBFC] px-4 py-2.5">
-
                   <p className="text-[9px] text-[#98A2B3]">
                     Showing {searchResults.length} matching result
                     {searchResults.length === 1
                       ? ""
                       : "s"}
                   </p>
-
                 </div>
               )}
-
             </div>
           )}
-
         </div>
-
         {/* ===================================================
             RIGHT SIDE
         =================================================== */}
-
         <div className="flex items-center gap-2">
-
           {/* =================================================
               NOTIFICATIONS
           ================================================= */}
-
           <div
             ref={notificationRef}
             className="relative"
           >
-
             <button
               type="button"
               onClick={
@@ -1530,16 +1302,13 @@ function Topbar({
               }
               aria-haspopup="dialog"
             >
-
               <Bell
                 size={18}
                 strokeWidth={1.9}
               />
-
               {unreadCount > 0 && (
                 <>
                   <span className="absolute right-2 top-1.5 h-2 w-2 animate-pulse rounded-full bg-[#D65A4A]" />
-
                   <span className="absolute -right-1 -top-1 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5658E8] px-1 text-[9px] font-bold leading-none text-white shadow-sm">
                     {unreadCount >
                     99
@@ -1548,55 +1317,34 @@ function Topbar({
                   </span>
                 </>
               )}
-
             </button>
-
             {/* =============================================
                 NOTIFICATION PANEL
             ============================================= */}
-
             {notificationOpen && (
-
               <div className="absolute right-0 top-12 w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[18px] border border-[#DDE1E9] bg-white shadow-[0_24px_60px_rgba(38,40,79,0.16)]">
-
                 <div className="border-b border-[#EAECF0] px-4 py-4">
-
                   <div className="flex items-start justify-between gap-3">
-
                     <div>
-
                       <div className="flex items-center gap-2">
-
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAE5F9] text-[#7862C8]">
-
                           <Bell size={14} />
-
                         </div>
-
                         <div>
-
                           <h2 className="text-sm font-semibold text-[#202938]">
                             Notifications
                           </h2>
-
                           <p className="mt-0.5 text-[9px] text-[#98A2B3]">
-
                             {unreadCount >
                             0
                               ? `${unreadCount} unread`
                               : "All caught up"}
-
                           </p>
-
                         </div>
-
                       </div>
-
                     </div>
-
                     {unreadCount >
                       0 && (
-
                       <button
                         type="button"
                         onClick={
@@ -1607,30 +1355,20 @@ function Topbar({
                         }
                         className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-bold text-[#5658E8] transition hover:bg-[#F4F3FF] disabled:cursor-not-allowed disabled:opacity-50"
                       >
-
                         <CheckCheck
                           size={12}
                         />
-
                         Mark all read
-
                       </button>
                     )}
-
                   </div>
-
                 </div>
-
                 {notificationError && (
-
                   <div className="border-b border-[#F0D5D5] bg-[#FFF9F9] px-4 py-3">
-
                     <div className="flex items-start justify-between gap-3">
-
                       <p className="text-[10px] leading-5 text-[#B42318]">
                         {notificationError}
                       </p>
-
                       <button
                         type="button"
                         onClick={() =>
@@ -1643,70 +1381,46 @@ function Topbar({
                       >
                         <X size={13} />
                       </button>
-
                     </div>
-
                   </div>
                 )}
-
                 <div className="max-h-[430px] overflow-y-auto">
-
                   {notificationsLoading ? (
-
                     <div className="px-5 py-12 text-center">
-
                       <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#F3E3F2]">
-
                         <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#DCD8ED] border-t-[#5658E8]" />
-
                       </div>
-
                       <p className="mt-4 text-xs font-semibold text-[#344054]">
                         Loading notifications
                       </p>
-
                     </div>
-
                   ) : notifications.length ===
                     0 ? (
-
                     <div className="px-5 py-12 text-center">
-
                       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#F8F9FB] text-[#98A2B3]">
-
                         <Bell size={19} />
-
                       </div>
-
                       <p className="mt-4 text-xs font-semibold text-[#344054]">
                         No notifications
                       </p>
-
                       <p className="mt-1.5 text-[10px] leading-5 text-[#98A2B3]">
                         New assignments and workflow updates will appear here.
                       </p>
-
                     </div>
-
                   ) : (
-
                     <div>
-
                       {notifications.map(
                         (
                           notification
                         ) => {
-
                           const Icon =
                             getNotificationIcon(
                               notification.notification_type
                             );
-
                           const iconStyle =
                             getNotificationIconStyles(
                               notification.notification_type
                             );
-
                           return (
                             <button
                               key={
@@ -1724,7 +1438,6 @@ function Topbar({
                                   : "bg-[#FAFAFF]"
                               }`}
                             >
-
                               <span
                                 className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
                                 style={{
@@ -1734,98 +1447,67 @@ function Topbar({
                                     iconStyle.color,
                                 }}
                               >
-
                                 <Icon
                                   size={15}
                                 />
-
                                 {!notification.is_read && (
-
                                   <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#5658E8] ring-2 ring-white" />
-
                                 )}
-
                               </span>
-
                               <span className="min-w-0 flex-1">
-
                                 <span className="flex items-start justify-between gap-2">
-
                                   <span className="text-[11px] font-semibold text-[#344054]">
                                     {
                                       notification.title
                                     }
                                   </span>
-
                                   <span className="shrink-0 text-[9px] text-[#98A2B3]">
                                     {formatNotificationTime(
                                       notification.created_at
                                     )}
                                   </span>
-
                                 </span>
-
                                 <span className="mt-1 block text-[10px] leading-5 text-[#667085]">
                                   {
                                     notification.message
                                   }
                                 </span>
-
                                 {notification.entity_type ===
                                   "job" && (
-
                                   <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#F3F4F8] px-2 py-1 text-[8px] font-semibold text-[#7A8495]">
-
                                     <BriefcaseBusiness
                                       size={9}
                                     />
-
                                     Job #
                                     {
                                       notification.entity_id
                                     }
-
                                   </span>
                                 )}
-
                               </span>
-
                               {!notification.is_read && (
-
                                 <span className="mt-1.5 shrink-0">
-
                                   <span className="block h-2 w-2 rounded-full bg-[#5658E8]" />
-
                                 </span>
                               )}
-
                             </button>
                           );
                         }
                       )}
-
                     </div>
                   )}
-
                 </div>
-
                 {notifications.length >
                   0 && (
-
                   <div className="border-t border-[#EAECF0] bg-[#FAFBFC] px-4 py-3">
-
                     <div className="flex items-center justify-between gap-3">
-
                       <p className="text-[9px] text-[#98A2B3]">
-
                         Showing latest{" "}
                         {
                           notifications.length
                         }{" "}
                         notifications
-
                       </p>
-
                       <button
                         type="button"
                         onClick={() =>
@@ -1838,17 +1520,12 @@ function Topbar({
                       >
                         Refresh
                       </button>
-
                     </div>
-
                   </div>
                 )}
-
               </div>
             )}
-
           </div>
-
           {/* PROFILE MENU */}
           <div className="relative">
             <button
@@ -1883,7 +1560,6 @@ function Topbar({
                 className={`text-[#718894] transition-transform ${profileOpen ? "rotate-180" : ""}`}
               />
             </button>
-
             {profileOpen && (
               <div
                 role="menu"
@@ -1947,7 +1623,6 @@ function Topbar({
                     </button>
                   </div>
                 </div>
-
                 <div className="border-t border-[#EDF1F4] p-2">
                   <button
                     type="button"
@@ -1965,7 +1640,6 @@ function Topbar({
               </div>
             )}
           </div>
-
           {profileEditorOpen && (
             createPortal(
 <div
@@ -1981,7 +1655,7 @@ function Topbar({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="profile-editor-title"
-                className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl border border-[#DDE5EA] bg-white shadow-2xl"
+                className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#DDE5EA] bg-white shadow-2xl"
                 onMouseDown={(event) => event.stopPropagation()}
               >
                 <div className="flex items-start justify-between gap-4 border-b border-[#EDF1F4] px-6 py-5">
@@ -1989,7 +1663,7 @@ function Topbar({
                     <h2 id="profile-editor-title" className="text-lg font-semibold text-[#1F3544]">
                       Edit your profile
                     </h2>
-                    <p className="mt-1 text-sm text-[#718894]">Update your personal details.</p>
+                    <p className="mt-1 text-sm text-[#718894]">Manage the details used across your Evalyn workspace.</p>
                   </div>
                   <button
                     type="button"
@@ -2000,7 +1674,6 @@ function Topbar({
                     <X size={16} />
                   </button>
                 </div>
-
                 <form onSubmit={handleProfileSave} className="space-y-4 px-6 py-5">
                   <div className="flex items-center gap-4 rounded-xl border border-[#DDE5EA] p-4">
                     <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#123B5D] text-lg font-semibold text-white">
@@ -2050,51 +1723,144 @@ function Topbar({
                       />
                     </div>
                   </div>
+                  <section className="space-y-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#1F3544]">Personal details</h3>
+                      <p className="mt-0.5 text-xs text-[#718894]">Keep your name and contact information up to date.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="profile-full-name" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
+                          Full name <span className="text-[#B42318]">*</span>
+                        </label>
+                        <input
+                          id="profile-full-name"
+                          type="text"
+                          required
+                          minLength={2}
+                          maxLength={100}
+                          autoComplete="name"
+                          value={profileForm.full_name}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, full_name: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="profile-username" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
+                          Username <span className="text-[#B42318]">*</span>
+                        </label>
+                        <input
+                          id="profile-username"
+                          type="text"
+                          required
+                          minLength={3}
+                          maxLength={50}
+                          pattern="[a-zA-Z0-9_]+"
+                          autoComplete="username"
+                          value={profileForm.username}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, username: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                        <p className="mt-1.5 text-[11px] text-[#718894]">3–50 letters, numbers, or underscores.</p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label htmlFor="profile-phone" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
+                          Phone number
+                        </label>
+                        <input
+                          id="profile-phone"
+                          type="tel"
+                          maxLength={30}
+                          autoComplete="tel"
+                          placeholder="e.g. +91 98765 43210"
+                          value={profileForm.phone_number}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, phone_number: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none placeholder:text-[#9BAAB3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                      </div>
+                    </div>
+                  </section>
 
-                  <div>
-                    <label htmlFor="profile-full-name" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
-                      Full name
-                    </label>
-                    <input
-                      id="profile-full-name"
-                      type="text"
-                      required
-                      minLength={2}
-                      maxLength={100}
-                      autoComplete="name"
-                      value={profileForm.full_name}
-                      onChange={(event) => {
-                        setProfileForm((current) => ({ ...current, full_name: event.target.value }));
-                        setProfileSaved(false);
-                      }}
-                      className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-                    />
-                  </div>
-
-                  <div>
-                    <label htmlFor="profile-username" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
-                      Username
-                    </label>
-                    <input
-                      id="profile-username"
-                      type="text"
-                      required
-                      minLength={3}
-                      maxLength={50}
-                      pattern="[a-zA-Z0-9_]+"
-                      autoComplete="username"
-                      value={profileForm.username}
-                      onChange={(event) => {
-                        setProfileForm((current) => ({ ...current, username: event.target.value }));
-                        setProfileSaved(false);
-                      }}
-                      className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-                    />
-                    <p className="mt-1.5 text-[11px] text-[#718894]">
-                      Use 3?50 letters, numbers, or underscores.
-                    </p>
-                  </div>
-
+                  <section className="space-y-3 border-t border-[#EDF1F4] pt-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#1F3544]">Work details</h3>
+                      <p className="mt-0.5 text-xs text-[#718894]">Add context about your role and workplace.</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="profile-job-title" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">Job title</label>
+                        <input
+                          id="profile-job-title"
+                          type="text"
+                          maxLength={100}
+                          autoComplete="organization-title"
+                          placeholder="e.g. Talent Acquisition Manager"
+                          value={profileForm.job_title}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, job_title: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none placeholder:text-[#9BAAB3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="profile-department" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">Department</label>
+                        <input
+                          id="profile-department"
+                          type="text"
+                          maxLength={100}
+                          placeholder="e.g. Human Resources"
+                          value={profileForm.department}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, department: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none placeholder:text-[#9BAAB3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label htmlFor="profile-location" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">Location</label>
+                        <input
+                          id="profile-location"
+                          type="text"
+                          maxLength={120}
+                          autoComplete="address-level2"
+                          placeholder="e.g. Pune, India"
+                          value={profileForm.location}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, location: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none placeholder:text-[#9BAAB3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label htmlFor="profile-bio" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">About you</label>
+                        <textarea
+                          id="profile-bio"
+                          rows={3}
+                          maxLength={500}
+                          placeholder="Share a short professional introduction..."
+                          value={profileForm.bio}
+                          onChange={(event) => {
+                            setProfileForm((current) => ({ ...current, bio: event.target.value }));
+                            setProfileSaved(false);
+                          }}
+                          className="w-full resize-y rounded-xl border border-[#D7E0E6] px-3.5 py-2.5 text-sm text-[#1F3544] outline-none placeholder:text-[#9BAAB3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                        />
+                        <p className="mt-1 text-right text-[11px] text-[#718894]">{profileForm.bio.length}/500</p>
+                      </div>
+                    </div>
+                  </section>
                   <div>
                     <label htmlFor="profile-email" className="mb-1.5 block text-xs font-semibold text-[#344B5A]">
                       Email address
@@ -2110,7 +1876,6 @@ function Topbar({
                       Email changes require a separate verification flow.
                     </p>
                   </div>
-
                   <div className="rounded-xl bg-[#F5F7F9] px-3.5 py-3">
                     <p className="text-xs font-semibold text-[#344B5A]">Account role</p>
                     <p className="mt-1 text-sm text-[#718894]">{displayRole}</p>
@@ -2118,7 +1883,6 @@ function Topbar({
                       Role and permissions cannot be edited here.
                     </p>
                   </div>
-
                   {profileError && (
                     <p role="alert" className="rounded-xl bg-[#FFF1F0] px-3.5 py-2.5 text-sm text-[#B42318]">
                       {profileError}
@@ -2129,7 +1893,6 @@ function Topbar({
                       Profile saved successfully.
                     </p>
                   )}
-
                   <div className="flex justify-end gap-2 border-t border-[#EDF1F4] pt-4">
                     <button
                       type="button"
@@ -2150,23 +1913,17 @@ function Topbar({
               </div>
             </div>, document.body)
           )}
-
         </div>
-
       </div>
-
     </header>
   );
 }
-
 /* ============================================================
    SMALL SEARCH LOADER
 ============================================================ */
-
 function RefreshSmall() {
   return (
     <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#DCD8ED] border-t-[#5658E8]" />
   );
 }
-
 export default Topbar;

@@ -9,6 +9,26 @@ from app.services.llm_service import (
 )
 
 
+_NON_TECHNICAL_EXTRACTION_CATEGORIES = {
+    "professional skill",
+    "soft skill",
+    "communication",
+    "leadership",
+    "teamwork",
+    "other",
+}
+
+
+def _review_category_from_extraction(category: str | None) -> str:
+    """Map the detailed extraction taxonomy to the review UI's two categories."""
+    normalized = " ".join(str(category or "").strip().lower().split())
+    return (
+        "non_technical"
+        if normalized in _NON_TECHNICAL_EXTRACTION_CATEGORIES
+        else "technical"
+    )
+
+
 def extract_and_save_job_skills(
     db: Session,
     job: Job,
@@ -64,12 +84,19 @@ def extract_and_save_job_skills(
             )
 
             if existing_link is None:
+                extracted_category = _review_category_from_extraction(
+                    getattr(extracted_skill, "category", None)
+                )
                 db.add(
                     JobSkill(
                         job_id=job.id,
                         skill_id=skill.id,
+                        category=extracted_category,
+                        is_mandatory=True,
                     )
                 )
+            # If the link already exists, preserve the recruiter-selected
+            # category and mandatory/optional value during re-extraction.
 
         # Persist the experience extracted from the JD.
         job.experience_required = normalized.experience_required
