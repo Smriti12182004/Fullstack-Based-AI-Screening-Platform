@@ -1,4 +1,4 @@
-
+﻿
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -565,6 +565,178 @@ def _set_response(
     }
 
 
+def _workspace_set_responses_bulk(
+    db: Session,
+    assessment_sets: list[AssessmentSet],
+    sections: list[dict],
+) -> list[dict]:
+    """Build workspace set payloads with batched queries instead of per-slot queries.
+
+    The regular single-set serializers remain available to routes that need them.
+    This optimized serializer is used by the main authoring workspace endpoint,
+    where loading two sets with many slots previously performed several SQL queries
+    per slot (attempt history, section/skill metadata, and question ratings).
+    """
+    if not assessment_sets:
+        return []
+
+    set_ids = [int(item.id) for item in assessment_sets]
+    slots = (
+        db.query(QuestionSlot)
+        .filter(QuestionSlot.assessment_set_id.in_(set_ids))
+        .order_by(
+            QuestionSlot.assessment_set_id.asc(),
+            QuestionSlot.section_id.asc(),
+            QuestionSlot.skill_id.asc(),
+            QuestionSlot.difficulty.asc(),
+            QuestionSlot.slot_number.asc(),
+        )
+        .all()
+    )
+
+    slot_ids = [int(slot.id) for slot in slots]
+    question_ids = sorted(
+        {
+            int(slot.current_question_id)
+            for slot in slots
+            if slot.current_question_id is not None
+        }
+    )
+
+    attempts_by_slot: dict[int, list[QuestionGenerationAttempt]] = {}
+    if slot_ids:
+        attempts = (
+            db.query(QuestionGenerationAttempt)
+            .filter(QuestionGenerationAttempt.question_slot_id.in_(slot_ids))
+            .order_by(
+                QuestionGenerationAttempt.question_slot_id.asc(),
+                QuestionGenerationAttempt.attempt_number.desc(),
+            )
+            .all()
+        )
+        for attempt in attempts:
+            attempts_by_slot.setdefault(
+                int(attempt.question_slot_id), []
+            ).append(attempt)
+
+    question_by_id: dict[int, Question] = {}
+    if question_ids:
+        question_by_id = {
+            int(question.id): question
+            for question in db.query(Question)
+            .filter(Question.id.in_(question_ids))
+            .all()
+        }
+
+    section_by_id = {
+        int(section["id"]): section
+        for section in sections
+        if section.get("id") is not None
+    }
+
+    slot_skill_ids = sorted({int(slot.skill_id) for slot in slots})
+    skill_by_id: dict[int, Skill] = {}
+    if slot_skill_ids:
+        skill_by_id = {
+            int(skill.id): skill
+            for skill in db.query(Skill)
+            .filter(Skill.id.in_(slot_skill_ids))
+            .all()
+        }
+
+    slots_by_set: dict[int, list[dict]] = {
+        set_id: [] for set_id in set_ids
+    }
+
+    for slot in slots:
+        section = section_by_id.get(int(slot.section_id), {})
+        skill = skill_by_id.get(int(slot.skill_id))
+        question = (
+            question_by_id.get(int(slot.current_question_id))
+            if slot.current_question_id is not None
+            else None
+        )
+
+        question_payload = None
+        if question is not None:
+            question_payload = _question_response(question)
+            question_payload["manager_rating"] = question.manager_rating
+            question_payload["reviewer_rating"] = question.reviewer_rating
+
+        slot_payload = {
+            "id": slot.id,
+            "assessment_set_id": slot.assessment_set_id,
+            "section_id": slot.section_id,
+            "section_name": section.get("name"),
+            "section_description": _section_description(
+                section.get("section_type", "conceptual"),
+                section.get("name"),
+            ),
+            "skill_id": slot.skill_id,
+            "skill_name": skill.name if skill is not None else None,
+            "section_type": slot.section_type,
+            "difficulty": slot.difficulty,
+            "slot_number": slot.slot_number,
+            "preferred_question_type": _slot_question_type(slot),
+            "source_type": slot.source_type,
+            "status": slot.status,
+            "current_question": question_payload,
+            "generation_attempts": [
+                _attempt_response(attempt)
+                for attempt in attempts_by_slot.get(int(slot.id), [])
+            ],
+        }
+        slots_by_set.setdefault(int(slot.assessment_set_id), []).append(
+            slot_payload
+        )
+
+    responses = []
+    for assessment_set in assessment_sets:
+        set_slots = slots_by_set.get(int(assessment_set.id), [])
+        total = len(set_slots)
+        filled = sum(
+            1 for slot in set_slots if slot["current_question"] is not None
+        )
+        pending = sum(
+            1
+            for slot in set_slots
+            if slot["current_question"] is not None
+            and slot["current_question"].get("status") == "pending_review"
+        )
+        approved = sum(
+            1
+            for slot in set_slots
+            if slot["current_question"] is not None
+            and slot["current_question"].get("status") == "approved"
+        )
+
+        responses.append(
+            {
+                "id": assessment_set.id,
+                "question_set_id": assessment_set.question_set_id,
+                "variant_number": assessment_set.variant_number,
+                "label": assessment_set.label,
+                "status": assessment_set.status,
+                "review_status": assessment_set.status,
+                "reviewer_id": assessment_set.reviewer_id,
+                "reviewed_at": assessment_set.reviewed_at,
+                "review_comment": assessment_set.review_comment,
+                "review_checklist": assessment_set.review_checklist or {},
+                "summary": {
+                    "total_slots": total,
+                    "filled_slots": filled,
+                    "remaining_slots": max(total - filled, 0),
+                    "pending_review": pending,
+                    "approved": approved,
+                    "ready_for_finalize": total > 0 and filled == total,
+                },
+                "slots": set_slots,
+            }
+        )
+
+    return responses
+
+
 def bootstrap_question_set(
     db: Session,
     question_set_id: int,
@@ -934,13 +1106,11 @@ def get_question_set_authoring_workspace(
         "variant_count": 2,
         "sections": sections,
         "available_skills": available_skills,
-        "sets": [
-            _set_response(
-                db,
-                item,
-            )
-            for item in sets
-        ],
+        "sets": _workspace_set_responses_bulk(
+            db=db,
+            assessment_sets=sets,
+            sections=sections,
+        ),
     }
 
 
@@ -3131,7 +3301,7 @@ def get_question_bank_questions(
     user_id: int,
     limit: int = 100,
 ) -> list[dict]:
-    """Return approved current-year bank questions for the exact slot context, highest-rated first."""
+    """Return questions matching the slot that are both question-approved and from an approved question set in this job/year bank."""
 
     slot, question_set = _get_slot(
         db,
@@ -3160,10 +3330,28 @@ def get_question_bank_questions(
                 q.status,
                 q.source,
                 qb.hiring_year AS source_year,
+                confirmed_source.label AS confirmed_set_label,
+                confirmed_source.variant_number AS confirmed_set_variant,
                 COALESCE(q.manager_rating, 0) AS manager_rating,
                 COALESCE(q.reviewer_rating, 0) AS reviewer_rating
             FROM questions q
             JOIN question_banks qb ON qb.id = q.question_bank_id
+            JOIN LATERAL (
+                SELECT
+                    source_set.label,
+                    source_set.variant_number
+                FROM question_slots source_slot
+                JOIN assessment_sets source_set
+                  ON source_set.id = source_slot.assessment_set_id
+                JOIN question_sets source_blueprint
+                  ON source_blueprint.id = source_set.question_set_id
+                WHERE source_slot.current_question_id = q.id
+                  AND source_set.status = 'approved'
+                  AND source_blueprint.job_id = :job_id
+                  AND source_blueprint.hiring_year = :hiring_year
+                ORDER BY source_set.variant_number ASC
+                LIMIT 1
+            ) confirmed_source ON TRUE
             WHERE qb.job_id = :job_id
               AND qb.hiring_year = :hiring_year
               AND q.skill_id = :skill_id
@@ -3211,7 +3399,7 @@ def use_existing_question(
     question_id: int,
     user_id: int,
 ) -> dict:
-    """Assign an approved current-year bank question to a slot without cloning its content."""
+    """Assign only an exact-context question from an approved question set without cloning its content."""
 
     slot, question_set = _get_slot(
         db,
@@ -3233,6 +3421,18 @@ def use_existing_question(
               AND q.section_type = :section_type
               AND q.question_type = :question_type
               AND q.status = 'approved'
+              AND EXISTS (
+                  SELECT 1
+                  FROM question_slots source_slot
+                  JOIN assessment_sets source_set
+                    ON source_set.id = source_slot.assessment_set_id
+                  JOIN question_sets source_blueprint
+                    ON source_blueprint.id = source_set.question_set_id
+                  WHERE source_slot.current_question_id = q.id
+                    AND source_set.status = 'approved'
+                    AND source_blueprint.job_id = :job_id
+                    AND source_blueprint.hiring_year = :hiring_year
+              )
             LIMIT 1
             """
         ),
@@ -3251,8 +3451,8 @@ def use_existing_question(
 
     if allowed is None:
         raise ValueError(
-            "This question does not match the slot's skill, difficulty "
-            "and section type."
+            "This question is not from an approved question set in the current question bank, "
+            "or it does not match the slot's skill, difficulty, section, and type."
         )
 
     duplicate_use = db.execute(
@@ -3413,6 +3613,7 @@ def get_previous_questions(
               AND q.skill_id = :skill_id
               AND q.difficulty = :difficulty
               AND q.section_type = :section_type
+              AND q.question_type = :question_type
               AND q.status = 'approved'
               AND (
                   a.review_status = 'approved'
@@ -3482,6 +3683,7 @@ def use_previous_question(
               AND q.skill_id = :skill_id
               AND q.difficulty = :difficulty
               AND q.section_type = :section_type
+              AND q.question_type = :question_type
               AND q.status = 'approved'
               AND (
                   a.review_status = 'approved'

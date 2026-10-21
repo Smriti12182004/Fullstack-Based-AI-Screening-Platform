@@ -1,4 +1,10 @@
-import { createContext, useContext, useState } from "react";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
 const AuthContext = createContext(null);
 
@@ -32,6 +38,29 @@ function getStoredAuth() {
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(getStoredAuth);
 
+  // Synchronize authentication changes between browser tabs.
+  // Logging out in one tab must not leave another tab using
+  // the previous account.
+  useEffect(() => {
+    const handleStorageChange = (event) => {
+      if (event.key === "auth" || event.key === null) {
+        setAuth(getStoredAuth());
+      }
+    };
+
+    window.addEventListener(
+      "storage",
+      handleStorageChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        "storage",
+        handleStorageChange
+      );
+    };
+  }, []);
+
   const login = (data) => {
     if (!data) {
       return;
@@ -47,12 +76,12 @@ export function AuthProvider({ children }) {
       role: data.role,
     };
 
-    setAuth(normalizedAuth);
-
     localStorage.setItem(
       "auth",
       JSON.stringify(normalizedAuth)
     );
+
+    setAuth(normalizedAuth);
   };
 
   const updateProfile = (profileData) => {
@@ -67,14 +96,20 @@ export function AuthProvider({ children }) {
       email: profileData.email ?? auth.email,
     };
 
+    localStorage.setItem(
+      "auth",
+      JSON.stringify(nextAuth)
+    );
+
     setAuth(nextAuth);
-    localStorage.setItem("auth", JSON.stringify(nextAuth));
+
     return nextAuth;
   };
 
   const logout = () => {
-    setAuth(null);
+    // Clear persistent authentication and the current React state.
     localStorage.removeItem("auth");
+    setAuth(null);
   };
 
   return (

@@ -48,12 +48,14 @@ class SkillExtractionSchema(BaseModel):
         "Certification",
         "Other",
     ]
+    review_category: Literal["technical", "non_technical"] = "technical"
+    is_mandatory: bool = True
 
 
 class SkillExtractionResponseSchema(BaseModel):
     job_id: int
     skills: list[SkillExtractionSchema]
-    experience_required: str | None = None
+    experience_required: str | None
 
 
 class SkillReviewSkillSchema(BaseModel):
@@ -61,6 +63,8 @@ class SkillReviewSkillSchema(BaseModel):
         min_length=1,
         max_length=100,
     )
+    category: Literal["technical", "non_technical"] = "technical"
+    is_mandatory: bool = True
 
 
 class SkillReviewUpdateSchema(BaseModel):

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   ChevronDown,
   ChevronUp,
   Clock3,
@@ -31,6 +32,14 @@ const EMPTY_ACTIVITY = {
 
 function getRecordKey(record) {
   return `${record.assessment_id}-${record.candidate_id}`;
+}
+
+function getAssessmentGroupKey(record) {
+  const assessmentIdentity =
+    record.assessment_id ?? record.assessment_title ?? "assessment";
+  const jobIdentity = record.job_id ?? record.job_title ?? "job";
+
+  return `${jobIdentity}::${assessmentIdentity}`;
 }
 
 function formatDateTime(value) {
@@ -123,7 +132,6 @@ function getStatusPresentation(status) {
   }
 }
 
-
 function StatusPill({ status }) {
   const presentation = getStatusPresentation(status);
 
@@ -173,7 +181,9 @@ function MetricCard({
       onClick={onClick}
       aria-pressed={Boolean(selected)}
       aria-label={`${label}: ${value}. ${
-        selected ? "This activity filter is selected." : "Filter candidate activity."
+        selected
+          ? "This activity filter is selected."
+          : "Filter candidate activity."
       }`}
       className={`group relative flex min-h-[148px] w-full flex-col overflow-hidden rounded-2xl border p-4 text-left transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6565CB] focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none ${
         selected
@@ -279,7 +289,6 @@ function MetricCard({
     </button>
   );
 }
-
 
 function EventHistory({
   history,
@@ -423,9 +432,27 @@ function EventHistory({
   );
 }
 
+function SignalCount({ label, value, tone = "neutral" }) {
+  const tones = {
+    blue: "border-[#D6E4F8] bg-[#F4F8FE] text-[#426AA5]",
+    violet: "border-[#E1DCF5] bg-[#F8F6FD] text-[#6C5CA6]",
+    amber: "border-[#F0E1C5] bg-[#FFFBF2] text-[#9A702C]",
+    neutral: "border-[#E1E6E3] bg-white text-[#65736E]",
+  };
+
+  const count = Number(value || 0);
+
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-medium ${tones[tone] || tones.neutral}`}>
+      <span>{label}</span>
+      <span className="font-bold tabular-nums">{count}</span>
+    </span>
+  );
+}
+
 function ProctoringActivity() {
   const navigate = useNavigate();
-  const { auth, logout } = useAuth();
+  const { logout } = useAuth();
 
   const [activity, setActivity] = useState(EMPTY_ACTIVITY);
   const [loading, setLoading] = useState(true);
@@ -433,6 +460,10 @@ function ProctoringActivity() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [assessmentFilter, setAssessmentFilter] = useState("all");
+  const [expandedAssessmentGroups, setExpandedAssessmentGroups] = useState(
+    () => new Set()
+  );
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const [expandedKey, setExpandedKey] = useState("");
@@ -509,10 +540,61 @@ function ProctoringActivity() {
     };
   }, [loadActivity]);
 
+  const assessmentOptions = useMemo(() => {
+    const optionsByKey = new Map();
+
+    activity.items.forEach((item) => {
+      const key = getAssessmentGroupKey(item);
+
+      if (!optionsByKey.has(key)) {
+        optionsByKey.set(key, {
+          key,
+          jobTitle: item.job_title || "Untitled job",
+          assessmentTitle: item.assessment_title || "Untitled assessment",
+          assessmentId: item.assessment_id,
+        });
+      }
+    });
+
+    return Array.from(optionsByKey.values()).sort((a, b) => {
+      const jobComparison = a.jobTitle.localeCompare(b.jobTitle);
+      return jobComparison || a.assessmentTitle.localeCompare(b.assessmentTitle);
+    });
+  }, [activity.items]);
+
+  const scopedItems = useMemo(
+    () =>
+      activity.items.filter(
+        (item) =>
+          assessmentFilter === "all" ||
+          getAssessmentGroupKey(item) === assessmentFilter
+      ),
+    [activity.items, assessmentFilter]
+  );
+
+  const scopedSummary = useMemo(
+    () => ({
+      total: scopedItems.length,
+      active: scopedItems.filter((item) =>
+        ["in_progress", "started"].includes(
+          String(item.attempt_status || "").toLowerCase()
+        )
+      ).length,
+      withEvents: scopedItems.filter(
+        (item) => Number(item.event_count || 0) > 0
+      ).length,
+    }),
+    [scopedItems]
+  );
+
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return activity.items.filter((item) => {
+      const matchesAssessment =
+        assessmentFilter === "all" ||
+        getAssessmentGroupKey(item) === assessmentFilter;
+
       const matchesSearch =
         !query ||
         [
@@ -539,9 +621,67 @@ function ProctoringActivity() {
           )) ||
         (filter === "events" && hasEvents);
 
-      return matchesSearch && matchesFilter;
+      return matchesAssessment && matchesSearch && matchesFilter;
     });
-  }, [activity.items, search, filter]);
+  }, [activity.items, search, filter, assessmentFilter]);
+
+  const groupedItems = useMemo(() => {
+    const groups = new Map();
+
+    filteredItems.forEach((item) => {
+      const key = getAssessmentGroupKey(item);
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          jobTitle: item.job_title || "Untitled job",
+          jobId: item.job_id,
+          assessmentTitle: item.assessment_title || "Untitled assessment",
+          assessmentId: item.assessment_id,
+          items: [],
+          activeCount: 0,
+          candidatesWithEvents: 0,
+        });
+      }
+
+      const group = groups.get(key);
+      group.items.push(item);
+
+      if (["in_progress", "started"].includes(
+        String(item.attempt_status || "").toLowerCase()
+      )) {
+        group.activeCount += 1;
+      }
+
+      const eventCount = Number(item.event_count || 0);
+      if (eventCount > 0) group.candidatesWithEvents += 1;
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      const jobComparison = a.jobTitle.localeCompare(b.jobTitle);
+      if (jobComparison) return jobComparison;
+      return a.assessmentTitle.localeCompare(b.assessmentTitle);
+    });
+  }, [filteredItems]);
+
+  const toggleAssessmentGroup = (groupKey) => {
+    setExpandedAssessmentGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
+
+  const toggleAllAssessmentGroups = () => {
+    setExpandedAssessmentGroups((current) => {
+      const allExpanded = groupedItems.length > 0 &&
+        groupedItems.every((group) => current.has(group.key));
+      return allExpanded
+        ? new Set()
+        : new Set(groupedItems.map((group) => group.key));
+    });
+  };
 
   const loadHistory = async (record, forceRefresh = false) => {
     const key = getRecordKey(record);
@@ -677,38 +817,116 @@ function ProctoringActivity() {
           <MetricCard
             icon={<Users size={21} />}
             label="Candidate assignments"
-            value={activity.total}
-            description="Assignments visible within your access scope"
+            value={scopedSummary.total}
+            description={
+              assessmentFilter === "all"
+                ? "Across all accessible assessment sets"
+                : "In the selected assessment set"
+            }
             tone="purple"
-
             doodle="assignments"
             selected={filter === "all"}
-            onClick={() => setFilter("all")}
+            onClick={() => {
+              setFilter("all");
+              setExpandedAssessmentGroups(
+                assessmentFilter === "all"
+                  ? new Set()
+                  : new Set([assessmentFilter])
+              );
+            }}
           />
 
           <MetricCard
             icon={<Clock3 size={21} />}
             label="Active attempts"
-            value={activity.active_attempts}
-            description="Latest attempts currently in progress"
+            value={scopedSummary.active}
+            description="Active attempts in the selected scope"
             tone="blue"
-
             doodle="active"
             selected={filter === "active"}
-            onClick={() => setFilter("active")}
+            onClick={() => {
+              setFilter("active");
+              setExpandedAssessmentGroups(
+                new Set(activity.items.map(getAssessmentGroupKey))
+              );
+            }}
           />
 
           <MetricCard
             icon={<ShieldAlert size={21} />}
             label="Candidates with events"
-            value={activity.candidates_with_events}
-            description="Latest attempts with at least one recorded event"
+            value={scopedSummary.withEvents}
+            description="Candidates with events in the selected scope"
             tone="amber"
-
             doodle="events"
             selected={filter === "events"}
-            onClick={() => setFilter("events")}
+            onClick={() => {
+              setFilter("events");
+              setExpandedAssessmentGroups(
+                new Set(activity.items.map(getAssessmentGroupKey))
+              );
+            }}
           />
+        </section>
+
+        <section
+          className="rounded-2xl border border-[#DDE6E2] bg-white p-4 sm:p-5"
+          aria-labelledby="monitoring-scope-title"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F2EF] text-[#17655E]">
+              <ShieldAlert size={17} />
+            </div>
+
+            <div className="min-w-0">
+              <h2
+                id="monitoring-scope-title"
+                className="text-sm font-bold text-[#293B36]"
+              >
+                What monitoring records
+              </h2>
+
+              <p className="mt-1 text-xs leading-5 text-[#72817D]">
+                These are browser-event signals from the latest attempt, not
+                an automated misconduct verdict.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-[#E2EBE7] bg-[#FAFCFB] p-3.5">
+              <p className="text-xs font-semibold text-[#31564D]">
+                Focus &amp; visibility
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-[#7A8984]">
+                Tab hidden and assessment window focus loss.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[#E2EBE7] bg-[#FAFCFB] p-3.5">
+              <p className="text-xs font-semibold text-[#31564D]">
+                Fullscreen
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-[#7A8984]">
+                Fullscreen exit or availability events.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[#E2EBE7] bg-[#FAFCFB] p-3.5">
+              <p className="text-xs font-semibold text-[#31564D]">
+                Clipboard &amp; context menu
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-[#7A8984]">
+                Copy, cut, paste and context-menu attempts.
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-3 text-[10px] leading-5 text-[#899590]">
+            This implementation does not capture webcam video, record the
+            screen, or save clipboard contents. Review each event in context
+            before drawing conclusions.
+          </p>
         </section>
 
         <section className="overflow-hidden rounded-[24px] border border-[#DDE1EA] bg-white shadow-[0_12px_36px_rgba(38,40,79,0.04)]">
@@ -716,12 +934,12 @@ function ProctoringActivity() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h2 className="text-lg font-bold text-[#292D52]">
-                  Candidate activity
+                  Assessment sets
                 </h2>
 
                 <p className="mt-1 text-sm text-[#7A8196]">
-                  Search candidates and expand a record to inspect its
-                  proctoring history.
+                  Activity is grouped by job and assessment set. Open one set
+                  to see only its candidates and recorded events.
                 </p>
               </div>
 
@@ -734,36 +952,116 @@ function ProctoringActivity() {
                 <input
                   type="search"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSearch(value);
+                    setExpandedAssessmentGroups(
+                      value.trim()
+                        ? new Set(activity.items.map(getAssessmentGroupKey))
+                        : assessmentFilter !== "all"
+                          ? new Set([assessmentFilter])
+                          : filter !== "all"
+                            ? new Set(
+                                activity.items.map(getAssessmentGroupKey)
+                              )
+                            : new Set()
+                    );
+                  }}
                   placeholder="Search candidate, job, or assessment..."
                   className="w-full rounded-xl border border-[#DFE2EC] bg-[#FCFCFE] py-3 pl-10 pr-4 text-sm text-[#30345A] outline-none transition placeholder:text-[#A1A6B6] focus:border-[#8889E2] focus:ring-4 focus:ring-[#8889E2]/10"
                 />
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              {filters.map((item) => {
-                const selected = filter === item.value;
+            <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(240px,1fr)_auto] lg:items-end">
+              <label className="block min-w-0">
+                <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-[#858BA0]">
+                  Show assessment set
+                </span>
 
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    onClick={() => setFilter(item.value)}
-                    className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition ${
-                      selected
-                        ? "border-[#D8D6FB] bg-[#F0EFFF] text-[#5658B8]"
-                        : "border-[#E4E6EF] bg-white text-[#727990] hover:bg-[#F8F8FD]"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
+                <select
+                  value={assessmentFilter}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAssessmentFilter(value);
+                    setExpandedAssessmentGroups(
+                      value === "all" ? new Set() : new Set([value])
+                    );
+                  }}
+                  className="h-11 w-full rounded-xl border border-[#DFE2EC] bg-white px-3.5 text-sm text-[#39405E] outline-none focus:border-[#8889E2] focus:ring-4 focus:ring-[#8889E2]/10"
+                >
+                  <option value="all">
+                    All assessment sets ({assessmentOptions.length})
+                  </option>
 
-              <span className="ml-auto text-xs text-[#858BA0]">
-                Showing {filteredItems.length} of {activity.total}
-              </span>
+                  {assessmentOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.jobTitle} — {option.assessmentTitle}
+                      {option.assessmentId != null
+                        ? ` (#${option.assessmentId})`
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {filters.map((item) => {
+                  const selected = filter === item.value;
+
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={() => {
+                        setFilter(item.value);
+                        setExpandedAssessmentGroups(
+                          item.value === "all"
+                            ? assessmentFilter !== "all"
+                              ? new Set([assessmentFilter])
+                              : new Set()
+                            : new Set(
+                                activity.items.map(getAssessmentGroupKey)
+                              )
+                        );
+                      }}
+                      className={`rounded-xl border px-3.5 py-2.5 text-xs font-bold transition ${
+                        selected
+                          ? "border-[#D8D6FB] bg-[#F0EFFF] text-[#5658B8]"
+                          : "border-[#E4E6EF] bg-white text-[#727990] hover:bg-[#F8F8FD]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#ECECF3] pt-4">
+              <p className="text-xs text-[#858BA0]">
+                Showing {filteredItems.length} candidate assignment
+                {filteredItems.length === 1 ? "" : "s"}
+                {assessmentFilter === "all"
+                  ? ` across ${groupedItems.length} set${
+                      groupedItems.length === 1 ? "" : "s"
+                    }`
+                  : " in this set"}.
+              </p>
+
+              <button
+                type="button"
+                onClick={toggleAllAssessmentGroups}
+                disabled={groupedItems.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-[#E0E4EC] bg-white px-3 py-2 text-xs font-semibold text-[#606983] transition hover:bg-[#F7F8FC] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {groupedItems.length > 0 &&
+                groupedItems.every((group) =>
+                  expandedAssessmentGroups.has(group.key)
+                )
+                  ? "Collapse all sets"
+                  : "Expand all sets"}
+              </button>
             </div>
           </div>
 
@@ -800,12 +1098,14 @@ function ProctoringActivity() {
                   : "Try a different search term or select another activity filter."}
               </p>
 
-              {(search || filter !== "all") && (
+              {(search || filter !== "all" || assessmentFilter !== "all") && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearch("");
                     setFilter("all");
+                    setAssessmentFilter("all");
+                    setExpandedAssessmentGroups(new Set());
                   }}
                   className="mt-4 rounded-xl border border-[#DDDEF2] bg-white px-4 py-2.5 text-sm font-semibold text-[#5559B7] hover:bg-[#F6F5FF]"
                 >
@@ -814,148 +1114,267 @@ function ProctoringActivity() {
               )}
             </div>
           ) : (
-            <div className="space-y-4 bg-[#FBFBFE] p-4 sm:p-5">
-              {filteredItems.map((record) => {
-                const key = getRecordKey(record);
-                const expanded = expandedKey === key;
-                const eventCount = Number(record.event_count || 0);
+            <div className="space-y-3 bg-[#FBFBFE] p-3 sm:p-4">
+              {groupedItems.map((group) => {
+                const groupExpanded = expandedAssessmentGroups.has(group.key);
+                const groupId = `assessment-group-${group.key.replace(
+                  /[^a-zA-Z0-9_-]/g,
+                  "-"
+                )}`;
 
                 return (
-                  <article
-                    key={key}
-                    className="overflow-hidden rounded-2xl border border-[#E1E3EE] bg-white shadow-[0_6px_20px_rgba(38,40,79,0.025)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#D0D6E2] hover:shadow-[0_10px_24px_rgba(38,40,79,0.07)] motion-reduce:transform-none"
+                  <section
+                    key={group.key}
+                    className="overflow-hidden rounded-2xl border border-[#DDE2EB] bg-white"
                   >
-                    <div className="p-4 sm:p-5">
-                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#E6E6FF] to-[#F5E7F5] text-sm font-bold text-[#5B55AE]">
-                            {String(
-                              record.candidate_name ||
-                                record.candidate_username ||
-                                "C"
-                            )
-                              .trim()
-                              .slice(0, 2)
-                              .toUpperCase()}
-                          </div>
+                    <button
+                      type="button"
+                      aria-expanded={groupExpanded}
+                      aria-controls={groupId}
+                      onClick={() => toggleAssessmentGroup(group.key)}
+                      className="flex w-full flex-col gap-4 px-4 py-4 text-left transition-colors hover:bg-[#FAFAFE] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7778D6] sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                    >
+                      <span className="flex min-w-0 items-start gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#E0E2F5] bg-[#F4F3FF] text-[#5D60B9]">
+                          <ClipboardCheck size={17} />
+                        </span>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="break-words text-base font-bold text-[#292D52]">
-                                {record.candidate_name ||
-                                  record.candidate_username ||
-                                  "Unnamed candidate"}
-                              </h3>
-
-                              <StatusPill
-                                status={
-                                  record.attempt_status ||
-                                  record.assignment_status
-                                }
-                              />
-                            </div>
-
-                            <p className="mt-1 break-all text-sm text-[#7A8196]">
-                              {record.candidate_email || "No email recorded"}
-                            </p>
-
-                            <p className="mt-2 text-xs leading-5 text-[#8A90A3]">
-                              Candidate ID: {record.candidate_id}
-                              {" · "}
-                              Assessment ID: {record.assessment_id}
-                              {record.attempt_id
-                                ? ` · Attempt ID: ${record.attempt_id}`
-                                : ""}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                              eventCount > 0
-                                ? "border-[#F0DFC6] bg-[#FFFAF1] text-[#956322]"
-                                : "border-[#E2E5EE] bg-[#F8F9FC] text-[#7A8193]"
-                            }`}
-                          >
-                            {eventCount > 0 ? (
-                              <AlertTriangle size={13} />
-                            ) : (
-                              <CheckCircle2 size={13} />
-                            )}
-
-                            {eventCount} event{eventCount === 1 ? "" : "s"}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[10px] font-bold uppercase tracking-[0.13em] text-[#8A91A5]">
+                            {group.jobTitle}
+                            {group.jobId != null ? ` · Job #${group.jobId}` : ""}
                           </span>
 
-                          <button
-                            type="button"
-                            onClick={() => void loadHistory(record)}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#DADAF3] bg-white px-3.5 py-2.5 text-xs font-bold text-[#575AB6] transition hover:bg-[#F6F5FF]"
-                          >
-                            {expanded ? (
-                              <>
-                                Hide history
-                                <ChevronUp size={15} />
-                              </>
-                            ) : (
-                              <>
-                                View event history
-                                <ChevronDown size={15} />
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
+                          <span className="mt-1 block break-words text-sm font-bold leading-5 text-[#2E3354]">
+                            {group.assessmentTitle}
+                          </span>
 
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <InfoCell
-                          label="Job"
-                          value={record.job_title || "Untitled job"}
-                        />
+                          <span className="mt-1 block text-xs text-[#81889C]">
+                            {group.assessmentId != null
+                              ? `Assessment #${group.assessmentId} · `
+                              : ""}
+                            {group.items.length} candidate assignment
+                            {group.items.length === 1 ? "" : "s"} in this view
+                          </span>
+                        </span>
+                      </span>
 
-                        <InfoCell
-                          label="Assessment"
-                          value={
-                            record.assessment_title ||
-                            "Untitled assessment"
-                          }
-                        />
+                      <span className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                        <span className="rounded-full border border-[#E2E5EE] bg-[#F8F9FC] px-2.5 py-1.5 text-[10px] font-semibold text-[#667085]">
+                          {group.activeCount} active
+                        </span>
 
-                        <InfoCell
-                          label="Attempt started"
-                          value={formatDateTime(record.started_at)}
-                          icon={<CalendarClock size={14} />}
-                        />
+                        <span
+                          className={`rounded-full border px-2.5 py-1.5 text-[10px] font-semibold ${
+                            group.candidatesWithEvents > 0
+                              ? "border-[#F0DFC6] bg-[#FFFAF1] text-[#956322]"
+                              : "border-[#E2E5EE] bg-white text-[#7A8193]"
+                          }`}
+                        >
+                          {group.candidatesWithEvents} with events
+                        </span>
 
-                        <InfoCell
-                          label="Latest recorded event"
-                          value={
-                            record.latest_event_at
-                              ? `${getEventLabel(
-                                  record.latest_event_type
-                                )} · ${formatDateTime(
-                                  record.latest_event_at
-                                )}`
-                              : "No event recorded"
-                          }
-                          icon={<Activity size={14} />}
-                        />
-                      </div>
-                    </div>
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E1E4ED] bg-white text-[#737B91]">
+                          {groupExpanded ? (
+                            <ChevronUp size={16} />
+                          ) : (
+                            <ChevronDown size={16} />
+                          )}
+                        </span>
+                      </span>
+                    </button>
 
-                    {expanded && (
-                      <div className="border-t border-[#ECECF3] bg-[#FDFDFF] p-4 sm:p-5">
-                        <EventHistory
-                          history={historyByKey[key]}
-                          loading={historyLoadingKey === key}
-                          error={historyError}
-                          onRefresh={() =>
-                            void loadHistory(record, true)
-                          }
-                        />
+                    {groupExpanded && (
+                      <div
+                        id={groupId}
+                        className="space-y-3 border-t border-[#ECEEF4] bg-[#F8F9FC] p-3 sm:p-4"
+                      >
+                        {group.items.map((record) => {
+                          const key = getRecordKey(record);
+                          const expanded = expandedKey === key;
+                          const eventCount = Number(record.event_count || 0);
+
+                          return (
+                            <article
+                              key={key}
+                              className="overflow-hidden rounded-2xl border border-[#E1E3EE] bg-white shadow-[0_6px_20px_rgba(38,40,79,0.025)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#D0D6E2] hover:shadow-[0_10px_24px_rgba(38,40,79,0.07)] motion-reduce:transform-none"
+                            >
+                              <div className="p-4 sm:p-5">
+                                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                  <div className="flex min-w-0 items-start gap-3">
+                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#E6E6FF] to-[#F5E7F5] text-sm font-bold text-[#5B55AE]">
+                                      {String(
+                                        record.candidate_name ||
+                                          record.candidate_username ||
+                                          "C"
+                                      )
+                                        .trim()
+                                        .slice(0, 2)
+                                        .toUpperCase()}
+                                    </div>
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <h3 className="break-words text-base font-bold text-[#292D52]">
+                                          {record.candidate_name ||
+                                            record.candidate_username ||
+                                            "Unnamed candidate"}
+                                        </h3>
+
+                                        <StatusPill
+                                          status={
+                                            record.attempt_status ||
+                                            record.assignment_status
+                                          }
+                                        />
+                                      </div>
+
+                                      <p className="mt-1 break-all text-sm text-[#7A8196]">
+                                        {record.candidate_email ||
+                                          "No email recorded"}
+                                      </p>
+
+                                      <p className="mt-2 text-xs leading-5 text-[#8A90A3]">
+                                        Candidate ID: {record.candidate_id}
+                                        {record.attempt_id
+                                          ? ` · Attempt ID: ${record.attempt_id}`
+                                          : ""}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                    <span
+                                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                        eventCount > 0
+                                          ? "border-[#F0DFC6] bg-[#FFFAF1] text-[#956322]"
+                                          : "border-[#E2E5EE] bg-[#F8F9FC] text-[#7A8193]"
+                                      }`}
+                                    >
+                                      {eventCount > 0 ? (
+                                        <AlertTriangle size={13} />
+                                      ) : (
+                                        <CheckCircle2 size={13} />
+                                      )}
+
+                                      {eventCount} event
+                                      {eventCount === 1 ? "" : "s"}
+                                    </span>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => void loadHistory(record)}
+                                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#DADAF3] bg-white px-3.5 py-2.5 text-xs font-bold text-[#575AB6] transition hover:bg-[#F6F5FF]"
+                                    >
+                                      {expanded ? (
+                                        <>
+                                          Hide history
+                                          <ChevronUp size={15} />
+                                        </>
+                                      ) : (
+                                        <>
+                                          View event history
+                                          <ChevronDown size={15} />
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                  <InfoCell
+                                    label="Attempt started"
+                                    value={formatDateTime(record.started_at)}
+                                    icon={<CalendarClock size={14} />}
+                                  />
+
+                                  <InfoCell
+                                    label="Latest recorded event"
+                                    value={
+                                      record.latest_event_at
+                                        ? `${getEventLabel(
+                                            record.latest_event_type
+                                          )} · ${formatDateTime(
+                                            record.latest_event_at
+                                          )}`
+                                        : "No event recorded"
+                                    }
+                                    icon={<Activity size={14} />}
+                                  />
+                                </div>
+
+                                {eventCount > 0 && (
+                                  <div className="mt-4 rounded-xl border border-[#E5EBE8] bg-[#FAFCFB] p-3.5">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#71817B]">
+                                        Signal summary · latest attempt
+                                      </p>
+
+                                      <span className="text-[10px] font-semibold text-[#71817B]">
+                                        {eventCount} recorded event
+                                        {eventCount === 1 ? "" : "s"}
+                                      </span>
+                                    </div>
+
+                                    <div className="mt-2.5 flex flex-wrap gap-2">
+                                      <SignalCount
+                                        label="Focus & visibility"
+                                        value={
+                                          record.event_summary?.focus_visibility
+                                        }
+                                        tone="blue"
+                                      />
+
+                                      <SignalCount
+                                        label="Fullscreen"
+                                        value={record.event_summary?.fullscreen}
+                                        tone="violet"
+                                      />
+
+                                      <SignalCount
+                                        label="Clipboard & context"
+                                        value={
+                                          record.event_summary?.clipboard_context
+                                        }
+                                        tone="amber"
+                                      />
+
+                                      {Number(record.event_summary?.other || 0) >
+                                        0 && (
+                                        <SignalCount
+                                          label="Other"
+                                          value={record.event_summary?.other}
+                                          tone="neutral"
+                                        />
+                                      )}
+                                    </div>
+
+                                    <p className="mt-2 text-[10px] leading-5 text-[#899590]">
+                                      These counts group browser signals; they
+                                      are not a finding of misconduct.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {expanded && (
+                                <div className="border-t border-[#ECECF3] bg-[#FDFDFF] p-4 sm:p-5">
+                                  <EventHistory
+                                    history={historyByKey[key]}
+                                    loading={historyLoadingKey === key}
+                                    error={historyError}
+                                    onRefresh={() =>
+                                      void loadHistory(record, true)
+                                    }
+                                  />
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
                       </div>
                     )}
-                  </article>
+                  </section>
                 );
               })}
             </div>

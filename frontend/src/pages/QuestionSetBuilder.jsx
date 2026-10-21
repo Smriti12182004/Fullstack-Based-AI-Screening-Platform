@@ -627,6 +627,41 @@ function QuestionSetBuilder() {
           />
         </section>
 
+        {sections.length > 0 && (
+          <nav
+            aria-label="Question-set section index"
+            className="sticky top-2 z-20 mt-5 rounded-[16px] border border-[#E3E6EB] bg-white/95 p-4 shadow-[0_4px_16px_rgba(27,37,58,0.04)] backdrop-blur"
+          >
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xs font-bold text-[#202938]">Section index</h2>
+                <p className="mt-1 text-[10px] text-[#667085]">
+                  Select a section to jump to it without scrolling through the whole builder.
+                </p>
+              </div>
+              <span className="text-[10px] font-semibold text-[#667085]">
+                {sections.length} {sections.length === 1 ? "section" : "sections"} · {totalConfiguredQuestions} configured questions
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {sections.map((section, index) => (
+                <a
+                  key={section.id}
+                  href={`#question-set-section-${section.id}`}
+                  className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-[#E3E6EB] bg-[#FCFCFD] px-3 py-2 text-[10px] font-semibold text-[#475467] transition hover:border-[#A8A0DF] hover:bg-[#F7F5FF] hover:text-[#5146B2] focus:outline-none focus:ring-2 focus:ring-[#5658E8]/30"
+                >
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#EAE5F9] text-[9px] font-bold text-[#7862C8]">
+                    {index + 1}
+                  </span>
+                  <span className="max-w-[180px] truncate">{section.name || `Section ${index + 1}`}</span>
+                  <span className="text-[#98A2B3]">{getSectionTotal(section)} Q</span>
+                </a>
+              ))}
+            </div>
+          </nav>
+        )}
+
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_430px]">
           <section className="rounded-[20px] border border-[#E3E6EB] bg-white p-5 shadow-[0_8px_24px_rgba(27,37,58,0.03)] sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -674,8 +709,9 @@ function QuestionSetBuilder() {
 
                   return (
                     <article
+                      id={`question-set-section-${section.id}`}
                       key={section.id}
-                      className="rounded-[16px] border border-[#E3E6EB] bg-[#FCFCFD] p-4 sm:p-5"
+                      className="scroll-mt-28 rounded-[16px] border border-[#E3E6EB] bg-[#FCFCFD] p-4 sm:p-5"
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="flex min-w-0 gap-3">

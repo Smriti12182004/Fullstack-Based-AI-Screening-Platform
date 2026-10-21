@@ -250,3 +250,31 @@ node_modules/
 !.env.example
 **/.env.*
 !**/.env.example
+
+
+# Frontend-generated artifacts
+frontend/.vite/
+frontend/coverage/
+frontend/.next/
+
+# Local database files
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# Private keys and secrets directories
+*.pem
+*.key
+secrets/
+.secrets/
+
+# Temporary lint output
+frontend/lint-output.txt
+frontend/lint-after-fix.txt
+
+# Credential files
+*credentials*.json
+*service-account*.json
+
+# Local environment-specific configuration
+.env.test
