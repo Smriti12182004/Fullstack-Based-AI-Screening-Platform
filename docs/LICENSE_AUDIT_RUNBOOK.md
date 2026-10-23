@@ -47,11 +47,11 @@ After the frontend dependencies are installed and the intended backend `.venv` i
 python .\scripts\collect_third_party_license_files.py
 ```
 
-It copies the original matching `LICENSE`, `LICENCE`, `NOTICE`, `COPYING`, `COPYRIGHT`, and related files already present in `frontend/node_modules` and the active Python environment into `third_party_licenses/generated/`. It creates a Markdown index and a JSON manifest. Package names and relative package paths are recorded instead of the local machine's absolute source paths.
+It copies matching original `LICENSE`, `LICENCE`, `NOTICE`, `COPYING`, `COPYRIGHT`, and related files from `frontend/node_modules` and the active Python environment into `third_party_licenses/generated/`. It copies the original file bytes, records the package name/version and package URL in the index, and produces a root-level `THIRD_PARTY_NOTICES.txt` containing the text from files actually found. The surrounding package headings and URL fields are metadata; the licence bodies come from the copied upstream files.
 
-The collector does **not** download missing upstream files and does not fabricate replacements. A package may expose its licence in metadata without shipping a matching file, or may store notices somewhere unusual. Those entries are flagged for manual review. Run it with the environment that matches the version you intend to release.
+The collector does **not** download missing upstream files or fabricate licence text. A package may expose licence metadata without shipping a matching file, or may store notices unusually. Those entries are flagged for manual review. Run it with the exact dependency environment intended for release.
 
-The generated folder is an audit artefact: review every copied text and the index before committing. If it already exists, inspect it before moving or removing that generated folder and rerunning the collector. The script intentionally refuses to overwrite it automatically.
+The generated folder and root notices file are audit artefacts: inspect every copied text, package URL, and the index before committing. The script refuses to overwrite an existing generated folder or `THIRD_PARTY_NOTICES.txt`. If either already exists, inspect and back up the existing content first rather than deleting it blindly.
 
 ## Step 2 — Capture the installed Python dependency inventory
 
@@ -59,13 +59,15 @@ Ensure the project's `.venv` is activated. The following installs the reporting 
 
 ```powershell
 python -m pip install pip-licenses
-pip-licenses --format=json --output-file "$audit\backend-python.json"
-pip-licenses --format=table
+pip-licenses --from=mixed --with-urls --format=markdown --output-file ".\third_party_licenses\PYTHON_THIRD_PARTY_LICENSES.md"
+pip-licenses --from=mixed --with-urls --with-license-file --with-notice-file --format=json --output-file ".\third_party_licenses\PYTHON_THIRD_PARTY_LICENSES_FULL.json"
+pip-licenses --from=mixed --with-urls --with-license-file --with-notice-file --no-license-path --format=plain-vertical --output-file ".\third_party_licenses\PYTHON_LICENSE_TEXT_AUDIT.txt"
+pip-licenses --from=mixed --with-urls --format=table
 ```
 
-This reports packages installed in the currently active Python environment, so note whether it contains test/development packages as well as runtime packages. Use the environment that matches the deployment for the release inventory. The pinned requirements files are useful evidence, but they are not a substitute for the resolved installed tree.
+These commands provide a second Python-only metadata report with package URLs and the licence/NOTICE text available to `pip-licenses`. The text-audit file is diagnostic; the collector-generated root `THIRD_PARTY_NOTICES.txt` is composed from original files it copied from installed packages. Do not point `pip-licenses --output-file` at that same root file, or you would overwrite the collected notices. The commands expect `third_party_licenses` to exist, which the collector creates; run Step 1A first.
 
-For packages that need closer inspection, `pip-licenses` supports including the contents of licence and NOTICE files in JSON output. Treat those as review material: inspect the actual upstream terms and notices rather than approving a component solely from a short metadata label.
+This reports packages installed in the currently active Python environment, so note whether it contains test/development packages as well as runtime packages. Use the environment that matches the deployment for the release inventory. The pinned requirements files are useful evidence, but they are not a substitute for the resolved installed tree.
 
 ## Step 3 — Review the known risk terms
 
