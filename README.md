@@ -132,3 +132,8 @@ The repository will be organized to separate application components such as:
 frontend/
 backend/
 docs/
+```
+
+## Licensing
+
+The project licence has not been selected yet. Do not assume the repository is licensed for reuse merely because it is public. See [the software licensing review](docs/LICENSING.md) for the ownership checkpoint, licence options, third-party dependency/model review, and release checklist.
