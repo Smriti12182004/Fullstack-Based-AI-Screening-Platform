@@ -59,7 +59,7 @@ Before declaring a licence or publishing a release:
 - [ ] Confirm the rights holder and obtain written permission for the intended release.
 - [ ] Decide whether the project should be permissive open source, copyleft, or proprietary.
 - [ ] Add the approved root `LICENSE` with the correct rights holder and year.
-- [ ] Generate a dependency licence report for the pinned Python and JavaScript dependency trees, including transitive dependencies.
+- [ ] Complete the verified dependency licence report for pinned Python and JavaScript dependencies, including transitive dependencies; the initial frontend lockfile metadata inventory is in [THIRD_PARTY_LICENSE_REVIEW.md](THIRD_PARTY_LICENSE_REVIEW.md).
 - [ ] Review and preserve required third-party copyright notices and `NOTICE` files.
 - [ ] Check logos, fonts, icons, images, datasets, sample documents, model weights, and AI/service terms separately.
 - [ ] Add a third-party notices/SBOM artefact when the dependency review is complete.
@@ -71,7 +71,7 @@ Before declaring a licence or publishing a release:
 | --- | --- |
 | Root project licence | Not present |
 | Ownership / release approval | Not verified in repository files |
-| Dependency licence audit | Not completed |
+| Dependency licence audit | Partial: frontend lockfile licence metadata inventoried; Python dependencies, upstream notice text, bundled assets, exact model artefacts, and distribution paths remain to be verified |
 | Third-party notices / SBOM | Not yet recorded here |
 
-The next step is to confirm ownership and release permission. Once that is clear, add the chosen licence and complete the dependency and asset notices before presenting the project as licensed open source.
+The initial frontend inventory is recorded in [THIRD_PARTY_LICENSE_REVIEW.md](THIRD_PARTY_LICENSE_REVIEW.md). The next step is to confirm ownership and release permission, then complete the Python/dependency, model and asset review. Only after the rights holder approves the release terms should the chosen root licence be added.
