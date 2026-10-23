@@ -1,0 +1,784 @@
+
+/* ============================================================
+   EVALYN CANDIDATE WORKSPACE
+   Palette matches the existing Evalyn recruiter workspace:
+   midnight navy, indigo/purple accents, cool slate text and
+   blue-grey surfaces. Success and warning colors stay semantic.
+============================================================ */
+
+.candidate-dashboard.candidate-dashboard {
+  --cd-navy: #25264A;
+  --cd-navy-deep: #1C1D36;
+  --cd-indigo: #5658E8;
+  --cd-indigo-hover: #4546C8;
+  --cd-purple: #7862C8;
+  --cd-lavender: #EAE5F9;
+  --cd-page: #F5F8FC;
+  --cd-surface: #FFFFFF;
+  --cd-border: #DDE1E9;
+  --cd-text: #202938;
+  --cd-secondary: #667085;
+
+  min-height: 100vh;
+  color: var(--cd-text);
+  background:
+    radial-gradient(
+      ellipse at 4% 0%,
+      rgba(234, 229, 249, 0.62),
+      transparent 32rem
+    ),
+    radial-gradient(
+      ellipse at 100% 30%,
+      rgba(207, 222, 252, 0.42),
+      transparent 34rem
+    ),
+    var(--cd-page);
+}
+
+.candidate-dashboard,
+.candidate-dashboard * {
+  box-sizing: border-box;
+}
+
+/* ============================================================
+   HEADER AND EVALYN BRAND
+============================================================ */
+
+.candidate-dashboard .cd-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-color: rgba(215, 229, 236, 0.92);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 5px 22px rgba(37, 38, 74, 0.045);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.candidate-dashboard .cd-topbar__inner {
+  max-width: 1280px;
+  min-height: 76px;
+  padding-inline: clamp(1.1rem, 4vw, 2.75rem);
+}
+
+.candidate-dashboard .cd-brand {
+  min-width: 0;
+  gap: 0.7rem;
+}
+
+.candidate-dashboard .cd-brand__mark {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.candidate-dashboard .cd-brand__logo {
+  display: block;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.candidate-dashboard .cd-brand__name {
+  color: var(--cd-navy);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+}
+
+.candidate-dashboard .cd-brand__subtitle,
+.candidate-dashboard .cd-account__role {
+  color: var(--cd-secondary);
+}
+
+.candidate-dashboard .cd-account__name {
+  color: var(--cd-text);
+  letter-spacing: -0.01em;
+}
+
+/* ============================================================
+   SHARED CONTROLS
+============================================================ */
+
+.candidate-dashboard .cd-button {
+  border-radius: 12px;
+  font-weight: 650;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.candidate-dashboard .cd-button:active {
+  transform: translateY(1px);
+}
+
+.candidate-dashboard .cd-button:focus-visible,
+.candidate-dashboard .cd-assessment-card__action:focus-visible {
+  outline: 3px solid rgba(86, 88, 232, 0.42);
+  outline-offset: 3px;
+}
+
+.candidate-dashboard .cd-button--logout {
+  border-color: var(--cd-border);
+  color: #475467;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.candidate-dashboard .cd-button--logout:hover {
+  border-color: #B9B8F4;
+  color: var(--cd-indigo);
+  background: #F7F7FF;
+  box-shadow: 0 5px 14px rgba(86, 88, 232, 0.09);
+}
+
+/* ============================================================
+   MAIN LAYOUT
+============================================================ */
+
+.candidate-dashboard .cd-main {
+  width: min(100%, 1280px);
+  padding-top: clamp(1.5rem, 3.5vw, 2.75rem);
+  padding-bottom: 3rem;
+}
+
+/* ============================================================
+   HERO BANNER — NAVY AND PURPLE
+============================================================ */
+
+.candidate-dashboard .cd-hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 260px;
+  align-items: center;
+  overflow: hidden;
+  padding: clamp(1.7rem, 4vw, 3.2rem);
+  border: 1px solid #40426C;
+  border-radius: 28px;
+  color: #FFFFFF;
+  background: linear-gradient(
+    118deg,
+    #1C1D36 0%,
+    #25264A 56%,
+    #373568 100%
+  );
+  box-shadow:
+    0 20px 48px rgba(37, 38, 74, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.candidate-dashboard .cd-hero::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  content: "";
+  background:
+    radial-gradient(
+      circle at 83% 5%,
+      rgba(122, 97, 216, 0.24),
+      transparent 16rem
+    ),
+    radial-gradient(
+      circle at 100% 100%,
+      rgba(120, 98, 200, 0.18),
+      transparent 23rem
+    ),
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.015) 100%
+    );
+  pointer-events: none;
+}
+
+.candidate-dashboard .cd-hero::after {
+  position: absolute;
+  z-index: 0;
+  right: 11%;
+  bottom: -7.4rem;
+  width: 17rem;
+  height: 17rem;
+  border: 1px solid rgba(212, 198, 248, 0.14);
+  border-radius: 50%;
+  content: "";
+  box-shadow:
+    0 0 0 2rem rgba(212, 198, 248, 0.025),
+    0 0 0 4rem rgba(212, 198, 248, 0.02);
+  pointer-events: none;
+}
+
+.candidate-dashboard .cd-hero__orbit {
+  z-index: 0;
+  top: -5.75rem;
+  right: -3rem;
+  width: 18rem;
+  height: 18rem;
+  border-width: 1.4rem;
+  border-color: rgba(212, 198, 248, 0.16);
+}
+
+.candidate-dashboard .cd-hero__content {
+  z-index: 1;
+  max-width: 52rem;
+}
+
+.candidate-dashboard .cd-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.15rem;
+  padding: 0.45rem 0.72rem;
+  border: 1px solid rgba(218, 217, 255, 0.2);
+  border-radius: 999px;
+  color: #DAD9FF;
+  background: rgba(240, 235, 251, 0.09);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+}
+
+.candidate-dashboard .cd-hero__eyebrow::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: #9FB1FE;
+  box-shadow: 0 0 0 4px rgba(159, 177, 254, 0.14);
+  content: "";
+}
+
+.candidate-dashboard .cd-hero__title {
+  max-width: 53rem;
+  color: #FFFFFF;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2.15rem, 4.1vw, 3.55rem);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+}
+
+.candidate-dashboard .cd-hero__description {
+  max-width: 39rem;
+  margin-top: 1.25rem;
+  color: #D8DAEA;
+  font-size: 0.98rem;
+  line-height: 1.8;
+}
+
+/* ============================================================
+   SUMMARY CARDS
+============================================================ */
+
+.candidate-dashboard .cd-stats {
+  gap: 1rem;
+}
+
+.candidate-dashboard .cd-stat-card {
+  position: relative;
+  min-height: 126px;
+  overflow: hidden;
+  padding: 1.35rem 1.45rem;
+  border: 1px solid var(--cd-border);
+  border-radius: 19px;
+  background: linear-gradient(
+    145deg,
+    #FFFFFF 0%,
+    #FCFCFF 100%
+  );
+  box-shadow: 0 5px 16px rgba(37, 38, 74, 0.045);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.candidate-dashboard .cd-stat-card::before {
+  position: absolute;
+  top: 0;
+  left: 1.35rem;
+  width: 2.7rem;
+  height: 3px;
+  border-radius: 0 0 5px 5px;
+  background: var(--cd-indigo);
+  content: "";
+}
+
+.candidate-dashboard .cd-stat-card--progress::before {
+  background: #D79018;
+}
+
+.candidate-dashboard .cd-stat-card--completed::before {
+  background: #17845F;
+}
+
+.candidate-dashboard .cd-stat-card:hover {
+  transform: translateY(-2px);
+  border-color: #CFD1F6;
+  box-shadow: 0 12px 26px rgba(37, 38, 74, 0.075);
+}
+
+.candidate-dashboard .cd-stat-card__label {
+  color: var(--cd-secondary);
+  font-size: 0.84rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.candidate-dashboard .cd-stat-card__value {
+  margin-top: 0.35rem;
+  color: var(--cd-navy);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 2.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate-dashboard .cd-stat-card__icon {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgba(86, 88, 232, 0.045);
+}
+
+.candidate-dashboard .cd-stat-card__icon--assigned {
+  color: #5F55A8;
+  background: #EAE5F9;
+}
+
+.candidate-dashboard .cd-stat-card__icon--progress {
+  color: #996515;
+  background: #FFF8EB;
+}
+
+.candidate-dashboard .cd-stat-card__icon--completed {
+  color: #17655E;
+  background: #F2FAF7;
+}
+
+/* ============================================================
+   ASSIGNED ASSESSMENTS SECTION
+============================================================ */
+
+.candidate-dashboard .cd-assessments {
+  margin-top: clamp(2rem, 4vw, 2.75rem);
+}
+
+.candidate-dashboard .cd-assessments__heading {
+  margin-bottom: 1.1rem;
+  align-items: center;
+}
+
+.candidate-dashboard .cd-assessments__title {
+  color: var(--cd-navy);
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(1.35rem, 2.2vw, 1.7rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.candidate-dashboard .cd-assessments__description {
+  margin-top: 0.35rem;
+  color: var(--cd-secondary);
+  font-size: 0.9rem;
+}
+
+.candidate-dashboard .cd-button--refresh {
+  min-height: 42px;
+  padding-inline: 1rem;
+  border-color: var(--cd-border);
+  color: #475467;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.candidate-dashboard .cd-button--refresh:hover:not(:disabled) {
+  border-color: #B9B8F4;
+  color: var(--cd-indigo);
+  background: #F7F7FF;
+  box-shadow: 0 6px 15px rgba(86, 88, 232, 0.09);
+}
+
+.candidate-dashboard .cd-assessment-list {
+  gap: 0.85rem;
+}
+
+/* ============================================================
+   ASSESSMENT CARDS
+============================================================ */
+
+.candidate-dashboard .cd-assessment-card {
+  position: relative;
+  overflow: hidden;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--cd-border);
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 5px 17px rgba(37, 38, 74, 0.045);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
+}
+
+.candidate-dashboard .cd-assessment-card::before {
+  position: absolute;
+  top: 1.15rem;
+  bottom: 1.15rem;
+  left: 0;
+  width: 3px;
+  border-radius: 0 5px 5px 0;
+  background: #D4C6F8;
+  content: "";
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.candidate-dashboard .cd-assessment-card:hover {
+  transform: translateY(-2px);
+  border-color: #CFD1F6;
+  box-shadow: 0 14px 30px rgba(37, 38, 74, 0.08);
+}
+
+.candidate-dashboard .cd-assessment-card:hover::before {
+  opacity: 1;
+}
+
+.candidate-dashboard .cd-assessment-card__layout {
+  gap: 1.25rem;
+}
+
+.candidate-dashboard .cd-assessment-card__title {
+  color: #344054;
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.45;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+
+/* ============================================================
+   STATUS BADGES
+   Green means completed; amber means in progress.
+============================================================ */
+
+.candidate-dashboard .cd-status-badge {
+  padding: 0.32rem 0.68rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.candidate-dashboard .cd-status-badge[class*="bg-emerald-50"] {
+  border-color: #CFE6DD;
+  color: #17655E;
+  background: #F2FAF7;
+}
+
+.candidate-dashboard .cd-status-badge[class*="bg-amber-50"] {
+  border-color: #F1D7AD;
+  color: #996515;
+  background: #FFF8EB;
+}
+
+.candidate-dashboard .cd-status-badge[class*="bg-slate-50"] {
+  border-color: #E1E4EB;
+  color: #667085;
+  background: #F8F9FC;
+}
+
+/* ============================================================
+   ASSESSMENT METADATA
+============================================================ */
+
+.candidate-dashboard .cd-assessment-card__meta {
+  gap: 0.5rem;
+  margin-top: 1rem;
+  color: var(--cd-secondary);
+  font-size: 0.78rem;
+}
+
+.candidate-dashboard .cd-assessment-card__meta span {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid #EEF0F3;
+  border-radius: 8px;
+  background: #FAFBFC;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   PRIMARY ACTION BUTTONS
+============================================================ */
+
+.candidate-dashboard .cd-assessment-card__action {
+  min-height: 46px;
+  padding: 0.8rem 1.15rem;
+  border: 1px solid #4F50B8;
+  border-radius: 12px;
+  color: #FFFFFF;
+  background: linear-gradient(
+    135deg,
+    #5658E8,
+    #4F50B8
+  );
+  box-shadow: 0 6px 14px rgba(86, 88, 232, 0.16);
+  white-space: nowrap;
+}
+
+.candidate-dashboard .cd-assessment-card__action:hover {
+  transform: translateY(-1px);
+  border-color: #4546C8;
+  background: linear-gradient(
+    135deg,
+    #5F55A8,
+    #4546C8
+  );
+  box-shadow: 0 10px 20px rgba(86, 88, 232, 0.22);
+}
+
+.candidate-dashboard .cd-assessment-card__action svg {
+  transition: transform 160ms ease;
+}
+
+.candidate-dashboard .cd-assessment-card__action:hover svg {
+  transform: translateX(3px);
+}
+
+/* ============================================================
+   LOADING, ERROR AND EMPTY STATES
+============================================================ */
+
+.candidate-dashboard .cd-state-card {
+  border-color: var(--cd-border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 7px 22px rgba(37, 38, 74, 0.045);
+}
+
+.candidate-dashboard .cd-state-card .animate-spin {
+  border-color: #DDE1E9;
+  border-top-color: var(--cd-indigo);
+}
+
+.candidate-dashboard .cd-state-card > p {
+  color: var(--cd-secondary);
+}
+
+.candidate-dashboard .cd-state-card--empty {
+  border-color: #CDD3DE;
+  background: linear-gradient(
+    145deg,
+    #FFFFFF,
+    #FCFCFF
+  );
+}
+
+.candidate-dashboard .cd-state-card--empty > div:first-child {
+  color: #5F55A8;
+  background: #EAE5F9;
+}
+
+.candidate-dashboard .cd-state-card--empty h3 {
+  color: #202938;
+}
+
+.candidate-dashboard .cd-state-card--empty p {
+  color: #667085;
+}
+
+.candidate-dashboard .cd-state-card--error {
+  border-color: #F4C9C4;
+  background: #FFF7F6;
+}
+
+.candidate-dashboard .cd-state-card--error button {
+  color: #FFFFFF;
+  background: var(--cd-indigo);
+}
+
+.candidate-dashboard .cd-state-card--error button:hover {
+  background: var(--cd-indigo-hover);
+}
+
+/* ============================================================
+   DESKTOP LAYOUT
+============================================================ */
+
+@media (min-width: 1200px) {
+  .candidate-dashboard .cd-main {
+    padding-inline: 2.25rem;
+  }
+}
+
+/* ============================================================
+   TABLET AND MOBILE LAYOUT
+============================================================ */
+
+@media (max-width: 767px) {
+  .candidate-dashboard .cd-topbar__inner {
+    min-height: 68px;
+    padding-inline: 1rem;
+  }
+
+  .candidate-dashboard .cd-brand__mark {
+    width: 2.65rem;
+    height: 2.65rem;
+  }
+
+  .candidate-dashboard .cd-brand__logo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .candidate-dashboard .cd-main {
+    padding: 1.15rem 1rem 2.25rem;
+  }
+
+  .candidate-dashboard .cd-hero {
+    min-height: 0;
+    padding: 1.65rem 1.35rem 1.8rem;
+    border-radius: 23px;
+  }
+
+  .candidate-dashboard .cd-hero__title {
+    max-width: 100%;
+    font-size: clamp(2rem, 8.5vw, 2.8rem);
+    line-height: 1.12;
+  }
+
+  .candidate-dashboard .cd-hero__description {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .candidate-dashboard .cd-hero__orbit {
+    top: -4.4rem;
+    right: -7rem;
+    width: 14rem;
+    height: 14rem;
+    border-width: 1rem;
+  }
+
+  .candidate-dashboard .cd-stats {
+    gap: 0.75rem;
+  }
+
+  .candidate-dashboard .cd-stat-card {
+    min-height: 108px;
+    padding: 1rem 1.05rem;
+    border-radius: 16px;
+  }
+
+  .candidate-dashboard .cd-stat-card__value {
+    font-size: 2rem;
+  }
+
+  .candidate-dashboard .cd-stat-card__icon {
+    width: 2.45rem;
+    height: 2.45rem;
+    border-radius: 12px;
+  }
+
+  .candidate-dashboard .cd-assessments__heading {
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .candidate-dashboard .cd-assessments__title {
+    font-size: 1.35rem;
+  }
+
+  .candidate-dashboard .cd-assessments__description {
+    max-width: 23rem;
+    font-size: 0.84rem;
+  }
+
+  .candidate-dashboard .cd-button--refresh {
+    flex: 0 0 auto;
+    min-height: 39px;
+    padding-inline: 0.75rem;
+  }
+
+  .candidate-dashboard .cd-assessment-card {
+    padding: 1.15rem 1.1rem;
+    border-radius: 17px;
+  }
+
+  .candidate-dashboard .cd-assessment-card__layout {
+    gap: 1.05rem;
+  }
+
+  .candidate-dashboard .cd-assessment-card__title {
+    font-size: 1rem;
+  }
+
+  .candidate-dashboard .cd-assessment-card__action {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+
+/* ============================================================
+   SMALL MOBILE DEVICES
+============================================================ */
+
+@media (max-width: 420px) {
+  .candidate-dashboard .cd-account {
+    gap: 0.5rem;
+  }
+
+  .candidate-dashboard .cd-button--logout {
+    padding-inline: 0.65rem;
+  }
+
+  .candidate-dashboard .cd-brand__name {
+    font-size: 1.05rem;
+  }
+
+  .candidate-dashboard .cd-brand__subtitle {
+    font-size: 0.7rem;
+  }
+
+  .candidate-dashboard .cd-assessments__heading {
+    flex-wrap: wrap;
+  }
+
+  .candidate-dashboard .cd-button--refresh {
+    margin-left: auto;
+  }
+
+  .candidate-dashboard .cd-assessment-card__meta span {
+    font-size: 0.72rem;
+  }
+}
+
+/* ============================================================
+   ACCESSIBILITY: REDUCED MOTION
+============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .candidate-dashboard *,
+  .candidate-dashboard *::before,
+  .candidate-dashboard *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
