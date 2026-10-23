@@ -39,6 +39,20 @@ The first report is for production dependencies; the second includes development
 
 If the frontend dependency tree is not installed, run `npm ci` from `frontend` first. It reinstalls the exact versions resolved by `package-lock.json`; it should not update that lockfile.
 
+## Step 1A — Copy the actual licence/notice files from the installed trees
+
+After the frontend dependencies are installed and the intended backend `.venv` is activated, run the repository's collector:
+
+```powershell
+python .\scripts\collect_third_party_license_files.py
+```
+
+It copies the original matching `LICENSE`, `LICENCE`, `NOTICE`, `COPYING`, `COPYRIGHT`, and related files already present in `frontend/node_modules` and the active Python environment into `third_party_licenses/generated/`. It creates a Markdown index and a JSON manifest. Package names and relative package paths are recorded instead of the local machine's absolute source paths.
+
+The collector does **not** download missing upstream files and does not fabricate replacements. A package may expose its licence in metadata without shipping a matching file, or may store notices somewhere unusual. Those entries are flagged for manual review. Run it with the environment that matches the version you intend to release.
+
+The generated folder is an audit artefact: review every copied text and the index before committing. If it already exists, inspect it before moving or removing that generated folder and rerunning the collector. The script intentionally refuses to overwrite it automatically.
+
 ## Step 2 — Capture the installed Python dependency inventory
 
 Ensure the project's `.venv` is activated. The following installs the reporting utility only into the active virtual environment; it does not add the utility to `requirements.txt`.
