@@ -12,6 +12,7 @@ import importlib.metadata as metadata
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,55 @@ def norm_name(value: str) -> str:
 
 def safe_name(value: str) -> str:
     return (re.sub(r"[^A-Za-z0-9._@+-]+", "_", value.strip())[:180] or "unknown")
+
+
+def url_from_npm_metadata(package_meta: dict[str, Any], package_name: str) -> str:
+    """Return the upstream homepage/repository URL, or the official npm package page."""
+    homepage = package_meta.get("homepage")
+    if isinstance(homepage, str) and homepage.startswith(("https://", "http://")):
+        return homepage
+
+    repository = package_meta.get("repository")
+    if isinstance(repository, dict):
+        repository = repository.get("url")
+    if isinstance(repository, str) and repository.strip():
+        url = repository.strip()
+        for prefix in ("git+", "git://"):
+            if url.startswith(prefix):
+                url = "https://" + url[len(prefix):] if prefix == "git://" else url[4:]
+                break
+        if url.endswith(".git"):
+            url = url[:-4]
+        if url.startswith(("https://", "http://")):
+            return url
+
+    # Official package-registry page fallback; this is a package URL, not
+    # a claim that the licence text itself is hosted at this URL.
+    return "https://www.npmjs.com/package/" + package_name
+
+
+def url_from_python_metadata(dist: metadata.Distribution, package_name: str) -> str:
+    """Prefer upstream project URLs from metadata; fall back to the PyPI page."""
+    preferred_labels = {"homepage", "source", "source code", "repository", "repository url"}
+    project_urls = dist.metadata.get_all("Project-URL") or []
+    candidates: list[tuple[str, str]] = []
+    for item in project_urls:
+        label, separator, url = item.partition(",")
+        if separator and url.strip().startswith(("https://", "http://")):
+            candidates.append((label.strip().lower(), url.strip()))
+
+    for label, url in candidates:
+        if label in preferred_labels:
+            return url
+
+    home_page = str(dist.metadata.get("Home-page") or "").strip()
+    if home_page.startswith(("https://", "http://")):
+        return home_page
+    for _, url in candidates:
+        return url
+
+    # Official Python Package Index page fallback; not a direct licence-file URL.
+    return "https://pypi.org/project/" + package_name + "/"
 
 
 def is_legal_file(path: Path) -> bool:
@@ -102,7 +152,9 @@ def copy_original(
     destination = ecosystem_dir / safe_name(package_label) / safe_relative
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(text, encoding="utf-8", newline="\n")
+        # Preserve the original distributed file bytes. The text is read above
+        # only to reject binary/non-text files; no licence terms are rewritten.
+        shutil.copyfile(source, destination)
     except OSError:
         return None
     return {
@@ -155,6 +207,7 @@ def collect_npm(frontend: Path, output: Path) -> list[dict[str, Any]]:
                 copied.append(item)
         records.append({
             "ecosystem": "npm", "package": name, "version": version,
+            "package_url": url_from_npm_metadata(package_meta, name),
             "declared_license": str(license_label), "install_path": install_path,
             "status": "copied original file(s)" if copied else (
                 "package not installed" if not root.is_dir()
@@ -202,6 +255,7 @@ def collect_python(
             continue
         installed.add(normalized)
         declared = dist.metadata.get("License-Expression") or dist.metadata.get("License") or ""
+        package_url = url_from_python_metadata(dist, name)
         label = f"{name}@{version}"
         copied: list[dict[str, str]] = []
         try:
@@ -225,6 +279,7 @@ def collect_python(
                 continue
         records.append({
             "ecosystem": "python", "package": name, "version": version,
+            "package_url": package_url,
             "declared_license": str(declared),
             "status": "copied original file(s)" if copied else
                       "no matching installed LICENSE/NOTICE/COPYING file found",
@@ -251,14 +306,15 @@ def write_reports(
         "",
         "## Dependency inventory",
         "",
-        "| Ecosystem | Package | Version | Declared licence metadata | Copy status |",
-        "| --- | --- | --- | --- | --- |",
+        "| Ecosystem | Package | Version | Declared licence metadata | Package URL | Copy status |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for row in records:
         lic = str(row.get("declared_license") or "Not declared").replace("|", "\\|").replace("\n", " ")
         status = str(row.get("status") or "").replace("|", "\\|").replace("\n", " ")
+        package_url = str(row.get("package_url") or "Not available").replace("|", "%7C")
         lines.append(
-            f"| {row.get('ecosystem')} | {row.get('package')} | {row.get('version')} | {lic} | {status} |"
+            f"| {row.get('ecosystem')} | {row.get('package')} | {row.get('version')} | {lic} | {package_url} | {status} |"
         )
         for f in row.get("files") or []:
             lines.append(f"  - Copied: {f['copied_path']} (original: {f['original_path']})")
@@ -290,6 +346,44 @@ def write_reports(
     (output / "THIRD_PARTY_LICENSES_INDEX.md").write_text(
         "\n".join(lines), encoding="utf-8", newline="\n"
     )
+
+    # Build a consolidated notices file using only original text files copied
+    # above. The surrounding package/source headers are generated metadata;
+    # no missing licence text is fabricated.
+    notices_path = output.parent.parent / "THIRD_PARTY_NOTICES.txt"
+    notice_lines = [
+        "THIRD-PARTY LICENCE AND NOTICE FILES",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        "",
+        "The licence/notice bodies below are copied from files found in installed dependency distributions.",
+        "Package labels and URLs are metadata for identification; they are not licence terms.",
+        "Packages without a copied file are listed in third_party_licenses/generated/THIRD_PARTY_LICENSES_INDEX.md for manual follow-up.",
+        "",
+    ]
+    for row in records:
+        files = row.get("files") or []
+        if not files:
+            continue
+        for file_info in files:
+            copied_path = output / file_info["copied_path"]
+            try:
+                body = copied_path.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                continue
+            notice_lines.extend([
+                "=" * 78,
+                f"Package: {row.get('package', 'unknown')} {row.get('version', '')}".strip(),
+                f"Ecosystem: {row.get('ecosystem', 'unknown')}",
+                f"Package URL: {row.get('package_url') or 'Not available'}",
+                f"Declared licence metadata: {row.get('declared_license') or 'Not declared'}",
+                f"Original file path within dependency: {file_info.get('original_path', file_info.get('filename', 'unknown'))}",
+                "-" * 78,
+                body.rstrip("\r\n"),
+                "",
+                "",
+            ])
+    notices_path.write_text("\n".join(notice_lines).rstrip() + "\n", encoding="utf-8", newline="\n")
+
     manifest = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "python": sys.version,
@@ -325,6 +419,14 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    notices_path = root / "THIRD_PARTY_NOTICES.txt"
+    if notices_path.exists():
+        print(
+            f"Refusing to overwrite existing notices file: {notices_path}\n"
+            "Inspect and back it up first, then rerun only if replacing it is intended.",
+            file=sys.stderr,
+        )
+        return 2
 
     output.mkdir(parents=True)
     records = collect_npm(root / "frontend", output)
@@ -335,7 +437,8 @@ def main() -> int:
     missing = sum(1 for row in records if not row.get("files"))
     print(f"Copied {copied} original licence/notice file(s).")
     print(f"Entries needing manual follow-up: {missing}.")
-    print(f"Review: {output / 'THIRD_PARTY_LICENSES_INDEX.md'}")
+    print(f"Index: {output / 'THIRD_PARTY_LICENSES_INDEX.md'}")
+    print(f"Combined notices from copied original files: {root / 'THIRD_PARTY_NOTICES.txt'}")
     print("Review the copied files and generated index before committing them.")
     print("No root project licence was created.")
     return 0
