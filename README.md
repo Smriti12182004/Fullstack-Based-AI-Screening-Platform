@@ -136,4 +136,4 @@ docs/
 
 ## Licensing
 
-The project licence has not been selected yet. Do not assume the repository is licensed for reuse merely because it is public. See [the software licensing review](docs/LICENSING.md) for the ownership checkpoint, licence options, third-party dependency/model review, and release checklist.
+The project licence has not been selected yet. Do not assume the repository is licensed for reuse merely because it is public. Start with the [software licensing review](docs/LICENSING.md) for ownership, permission and licence selection, then see the [third-party licence review](docs/THIRD_PARTY_LICENSE_REVIEW.md) for the current dependency and model inventory and outstanding checks.
