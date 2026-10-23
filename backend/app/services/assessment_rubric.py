@@ -1,4 +1,3 @@
-
 """Shared weighted rubric for free-text answers."""
 
 from __future__ import annotations
@@ -10,11 +9,15 @@ QUESTION_MAX_POINTS = 10.0
 
 FREE_TEXT_RUBRIC: list[dict[str, Any]] = [
     {
-        "key": "technical_accuracy",
-        "label": "Technical accuracy",
+        "key": "answer_accuracy",
+        "label": "Answer accuracy and relevance",
         "max_points": 4.0,
         "guidance": (
-            "Correctness of the technical answer and absence of material errors."
+            "Assess whether the answer is accurate, relevant to the question, and "
+            "consistent with the facts or constraints provided. Judge technical "
+            "correctness only when the question genuinely requires technical "
+            "knowledge. Do not penalize a professional or non-technical answer "
+            "for not containing technical details."
         ),
     },
     {
@@ -22,8 +25,9 @@ FREE_TEXT_RUBRIC: list[dict[str, Any]] = [
         "label": "Coverage of key concepts",
         "max_points": 3.0,
         "guidance": (
-            "Coverage of important facts, steps, or requirements needed "
-            "to answer the question."
+            "Coverage of important facts, steps, decisions, or requirements needed "
+            "to answer the question. Assess the concepts relevant to the question "
+            "and role, not generic or unsupported details."
         ),
     },
     {
@@ -31,8 +35,8 @@ FREE_TEXT_RUBRIC: list[dict[str, Any]] = [
         "label": "Reasoning and application",
         "max_points": 2.0,
         "guidance": (
-            "Quality of explanation, root-cause reasoning, and practical "
-            "application where relevant."
+            "Quality of explanation, reasoning, practical application, and "
+            "justification where relevant to the question."
         ),
     },
     {
@@ -40,8 +44,8 @@ FREE_TEXT_RUBRIC: list[dict[str, Any]] = [
         "label": "Clarity and completeness",
         "max_points": 1.0,
         "guidance": (
-            "Whether the response is understandable and sufficiently "
-            "complete for the question."
+            "Whether the response is understandable, sufficiently complete, and "
+            "organized enough to address the question."
         ),
     },
 ]
@@ -79,14 +83,14 @@ def rubric_for_question(
 
     if references:
         rubric[1]["guidance"] += (
-            " Use these question-specific expected answer/key points "
-            "when evaluating coverage: "
+            " Use these question-specific expected answer/key points when "
+            "evaluating coverage: "
             + " | ".join(references)
         )
     else:
         rubric[1]["guidance"] += (
-            " Use the exact question and a technically sound answer to "
-            "identify key concepts; do not require unsupported details."
+            " Use the exact question and a relevant, defensible answer to identify "
+            "key concepts; do not require unsupported details."
         )
 
     return rubric

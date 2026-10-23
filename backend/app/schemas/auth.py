@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -46,6 +47,7 @@ class CandidateInvitationActivationRequest(BaseModel):
         max_length=128,
     )
 
+
 class ProfileUpdateRequest(BaseModel):
     full_name: str | None = Field(
         default=None,
@@ -57,4 +59,24 @@ class ProfileUpdateRequest(BaseModel):
         min_length=3,
         max_length=50,
         pattern=r"^[a-zA-Z0-9_]+$",
+    )
+    phone_number: str | None = Field(
+        default=None,
+        max_length=30,
+    )
+    job_title: str | None = Field(
+        default=None,
+        max_length=100,
+    )
+    department: str | None = Field(
+        default=None,
+        max_length=100,
+    )
+    location: str | None = Field(
+        default=None,
+        max_length=120,
+    )
+    bio: str | None = Field(
+        default=None,
+        max_length=500,
     )

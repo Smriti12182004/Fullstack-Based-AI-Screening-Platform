@@ -27,15 +27,12 @@ from app.services.manager_prompt_service import (
     QuestionPattern,
 )
 
-
 QUESTION_PLAN_TIMEOUT_SECONDS = min(30, GEMINI_QUESTION_TIMEOUT_SECONDS)
 QUESTION_PLAN_MAX_EXISTING_QUESTIONS = 12
 QUESTION_PLAN_MAX_REFERENCE_QUESTIONS = 5
 
-
 class QuestionGenerationPlannerError(Exception):
     """Base exception for question-generation planning failures."""
-
 
 class QuestionGenerationPlan(BaseModel):
     """Compact semantic plan for one generated assessment candidate."""
@@ -51,12 +48,10 @@ class QuestionGenerationPlan(BaseModel):
     storyline: str = Field(min_length=1, max_length=180)
     uniqueness_anchor: str = Field(min_length=1, max_length=160)
 
-
 class QuestionGenerationPlanResponse(BaseModel):
     """Planner response containing one plan per requested candidate."""
 
     plans: list[QuestionGenerationPlan]
-
 
 # Gemini structured-output schemas intentionally support only a conservative
 # subset of JSON Schema here.
@@ -149,7 +144,6 @@ QUESTION_GENERATION_PLAN_SCHEMA = {
     ],
 }
 
-
 def _normalize_text(
     value: object,
     max_length: int,
@@ -157,7 +151,6 @@ def _normalize_text(
     return " ".join(
         str(value or "").strip().split()
     )[:max_length]
-
 
 def _extract_json_payload(
     raw_text: str,
@@ -230,7 +223,6 @@ def _extract_json_payload(
         "LLM did not return valid JSON for question planning."
     )
 
-
 def _serialize_intent(
     intent: ManagerPromptInterpretation | None,
 ) -> str:
@@ -244,7 +236,6 @@ def _serialize_intent(
         ensure_ascii=False,
         separators=(",", ":"),
     )
-
 
 def _requested_patterns(
     intent: ManagerPromptInterpretation | None,
@@ -269,7 +260,6 @@ def _requested_patterns(
 
     return patterns
 
-
 def _manager_requests_efficiency(
     intent: ManagerPromptInterpretation | None,
 ) -> bool:
@@ -291,20 +281,40 @@ def _manager_requests_efficiency(
         for value in fields
     )
 
-
 def _experience_level_guidance(
     experience_required: str | None,
+    skill_category: str = "technical",
 ) -> str:
-    """Return planner calibration guidance derived from the JD experience requirement.
+    """Calibrate sophistication without changing the confirmed skill or job domain."""
+    raw = " ".join(str(experience_required or "").strip().casefold().split())
+    if str(skill_category or "").strip().lower() == "non_technical":
+        if not raw:
+            level = "unspecified"
+            guidance = (
+                "- Do not invent seniority. Let the slot's difficulty determine complexity.\n"
+                "- Use ordinary professional judgement and common workplace situations."
+            )
+        elif any(marker in raw for marker in ("fresher", "fresh graduate", "entry level", "entry-level", "0 year", "0 years", "graduate")):
+            level = "foundational-entry"
+            guidance = (
+                "- Assume an early-career candidate with limited professional exposure.\n"
+                "- Test basic professional concepts and straightforward role-related decisions.\n"
+                "- Do not require specialist knowledge or computer-science problem-solving."
+            )
+        else:
+            level = "as specified by the JD"
+            guidance = (
+                "- Match the depth of professional judgement to the experience specified.\n"
+                "- Do not let experience alter the role domain, skill, section, difficulty, or response format."
+            )
+        return f"""
+EXPERIENCE REQUIREMENT — JD
+- Original requirement: {_normalize_text(experience_required, 100) or "not specified"}
+- Derived experience band: {level}
 
-    Experience is deliberately treated as a sophistication signal, not as a
-    replacement for section type, difficulty, question type, skill, or manager
-    requirements.
-    """
-
-    raw = " ".join(
-        str(experience_required or "").strip().casefold().split()
-    )
+EXPERIENCE CALIBRATION FOR A NON-TECHNICAL ROLE
+{guidance}
+""".strip()
 
     if not raw:
         return """
@@ -318,20 +328,7 @@ EXPERIENCE CALIBRATION
 - Use normal professional reasoning for the requested difficulty.
 """.strip()
 
-    if any(
-        marker in raw
-        for marker in (
-            "fresher",
-            "fresh graduate",
-            "entry level",
-            "entry-level",
-            "graduate",
-            "0 year",
-            "0 years",
-            "zero year",
-            "zero years",
-        )
-    ):
+    if any(marker in raw for marker in ("fresher", "fresh graduate", "entry level", "entry-level", "graduate", "0 year", "0 years", "zero year", "zero years")):
         level = "foundational-entry"
         guidance = """
 - Assume an early-career candidate with limited professional exposure.
@@ -341,24 +338,11 @@ EXPERIENCE CALIBRATION
   and highly specialized operational knowledge.
 """.strip()
     else:
-        range_match = re.search(
-            r"(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)",
-            raw,
-        )
-
-        plus_match = re.search(
-            r"(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)",
-            raw,
-        )
-
-        single_match = re.search(
-            r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?)",
-            raw,
-        )
-
+        range_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)", raw)
+        plus_match = re.search(r"(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)", raw)
+        single_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?)", raw)
         minimum_years: float | None = None
         maximum_years: float | None = None
-
         if range_match:
             minimum_years = float(range_match.group(1))
             maximum_years = float(range_match.group(2))
@@ -369,56 +353,24 @@ EXPERIENCE CALIBRATION
 
         if minimum_years is None:
             level = "unspecified"
-            guidance = """
-- Do not invent a precise seniority level from ambiguous wording.
-- Preserve the slot's difficulty and use normal professional reasoning.
-""".strip()
+            guidance = "- Do not invent a precise seniority level from ambiguous wording."
         elif minimum_years < 1:
             level = "foundational-entry"
-            guidance = """
-- Prefer foundational concepts and familiar mechanisms.
-- Favor direct implementation, simple application, and one-step debugging.
-- Avoid deep architecture, obscure edge cases, and advanced production trade-offs.
-""".strip()
+            guidance = "- Prefer foundational concepts, familiar mechanisms, and one-step reasoning."
         elif minimum_years < 2:
             level = "early-career"
-            guidance = """
-- Use common implementation tasks, routine debugging, familiar APIs, and modest reasoning.
-- Expect some practical coding familiarity but avoid deep architecture and highly specialized
-  production trade-offs.
-""".strip()
+            guidance = "- Use common implementation tasks, routine debugging, familiar APIs, and modest reasoning."
         elif minimum_years < 4:
             level = "mid-level"
-            guidance = """
-- Favor practical implementation, common debugging, realistic constraints, and moderate
-  reasoning about trade-offs.
-- Production-style situations are appropriate when they still match the requested difficulty.
-- Avoid assuming ownership of complex architecture unless the section and difficulty require it.
-""".strip()
+            guidance = "- Favor practical implementation, common debugging, realistic constraints, and moderate trade-offs."
         elif minimum_years < 6:
             level = "experienced"
-            guidance = """
-- Expect solid practical experience with the skill.
-- Favor deeper troubleshooting, performance/reliability implications, realistic constraints,
-  and meaningful implementation trade-offs where compatible with the requested difficulty.
-- Do not turn a Medium slot into an architecture interview; sophistication must remain bounded
-  by the slot difficulty.
-""".strip()
+            guidance = "- Expect deeper troubleshooting and meaningful performance/reliability trade-offs where appropriate."
         else:
             level = "senior"
-            guidance = """
-- Expect strong professional experience with the skill.
-- Complex production situations, deeper failure analysis, performance/reliability trade-offs,
-  and architecture-aware reasoning are appropriate when compatible with the requested section
-  and difficulty.
-- Avoid obscure trivia; seniority should increase depth and judgment, not randomness.
-""".strip()
+            guidance = "- Use deeper production situations and architecture-aware reasoning where compatible with difficulty."
 
-    original_requirement = _normalize_text(
-        experience_required,
-        100,
-    ) or "not specified"
-
+    original_requirement = _normalize_text(experience_required, 100) or "not specified"
     return f"""
 EXPERIENCE REQUIREMENT — JD
 - Original requirement: {original_requirement}
@@ -428,10 +380,9 @@ EXPERIENCE CALIBRATION
 {guidance}
 
 IMPORTANT:
-- Experience calibration controls sophistication, professional judgment, and expected depth.
+- Experience calibrates sophistication only.
 - It MUST NOT override the confirmed skill, section type, difficulty, question type,
-  manager request, generation pattern, or other hard assessment constraints.
-- Experience should change how deeply a candidate reasons about the skill, not replace the skill.
+  manager request, generation pattern, job domain, or other hard constraints.
 """.strip()
 
 
@@ -509,7 +460,6 @@ _GENERIC_PLAN_TERMS = {
     "resource",
 }
 
-
 def _meaningful_tokens(
     value: str | None,
 ) -> set[str]:
@@ -530,42 +480,205 @@ def _meaningful_tokens(
     }
 
 
+_NON_TECHNICAL_PLAN_LEAKAGE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("greedy-choice property", r"\bgreedy(?:\s+choice)?\s+propert(?:y|ies)\b"),
+    ("greedy algorithm", r"\bgreedy\s+algorithm\b"),
+    ("algorithmic design", r"\balgorithmic\s+design\b"),
+    ("computer-science algorithm", r"\b(?:algorithm|algorithms|permutation|permutations|memoization|recursion|recursive|graph traversal|binary tree|dynamic programming|time complexity|space complexity)\b"),
+    ("programming implementation", r"\b(?:syntax errors?|memory leaks?|compiler|programming language|source code|code snippet|software debugging)\b"),
+    ("algorithm deployment or hardware sizing", r"\b(?:deploy(?:ing|ment)?\s+(?:the\s+)?algorithm|hardware limits required to deploy|algorithm in production)\b"),
+)
+
+
+def _non_technical_plan_leakage(
+    value: str | None,
+) -> list[str]:
+    normalized = " ".join(str(value or "").casefold().split())
+    matches = [
+        label
+        for label, pattern in _NON_TECHNICAL_PLAN_LEAKAGE_PATTERNS
+        if re.search(pattern, normalized, flags=re.IGNORECASE)
+    ]
+    return list(dict.fromkeys(matches))
+
+
+_NON_TECHNICAL_CONCEPT_TOPICS: dict[str, list[tuple[str, str]]] = {
+    "problem-solving": [
+        ("Responding to a customer objection", "Understand the customer's underlying concern before proposing a response"),
+        ("Prioritising sales leads", "Prioritise prospects using fit and demonstrated purchase intent"),
+        ("Following up with an unresponsive prospect", "Choose a professional next step after an unanswered sales follow-up"),
+        ("Handling a sales target shortfall", "Choose a realistic corrective action while preserving customer trust"),
+        ("Resolving a customer requirement mismatch", "Clarify customer needs before recommending a suitable offering"),
+    ],
+    "problem solving": [
+        ("Responding to a customer objection", "Understand the customer's underlying concern before proposing a response"),
+        ("Prioritising sales leads", "Prioritise prospects using fit and demonstrated purchase intent"),
+        ("Following up with an unresponsive prospect", "Choose a professional next step after an unanswered sales follow-up"),
+        ("Handling a sales target shortfall", "Choose a realistic corrective action while preserving customer trust"),
+        ("Resolving a customer requirement mismatch", "Clarify customer needs before recommending a suitable offering"),
+    ],
+    "communication": [
+        ("Clarifying a customer's needs", "Use active listening and open questions to clarify requirements"),
+        ("Explaining a product benefit", "Connect a product benefit to a customer's stated need"),
+        ("Responding to a customer concern", "Acknowledge the concern and provide a clear relevant response"),
+        ("Giving a concise sales pitch", "Present a value proposition clearly and accurately"),
+        ("Confirming the next step", "Summarise the agreed action and confirm expectations"),
+    ],
+    "presentation skills": [
+        ("Structuring a product presentation", "Organise a pitch around customer needs and relevant benefits"),
+        ("Tailoring a presentation", "Choose product information relevant to the audience's needs"),
+        ("Handling questions during a pitch", "Answer accurately and acknowledge when information needs verification"),
+        ("Explaining product value", "Connect features with meaningful customer benefits"),
+        ("Closing a presentation", "Summarise value and agree on a clear next step"),
+    ],
+    "lead generation": [
+        ("Identifying a suitable prospect", "Match prospect characteristics to the intended customer profile"),
+        ("Qualifying a sales lead", "Distinguish an interested contact from a lead with fit and intent"),
+        ("Prioritising new leads", "Rank leads using relevance, engagement, and purchase intent"),
+        ("Choosing a prospecting channel", "Select a channel suited to the target audience"),
+        ("Maintaining lead quality", "Avoid counting unqualified contacts as sales-ready opportunities"),
+    ],
+    "sales negotiation": [
+        ("Responding to a price objection", "Explore the customer's concern before discussing concessions"),
+        ("Trading concessions", "Exchange a concession for a meaningful reciprocal commitment"),
+        ("Protecting customer value", "Balance the customer's needs with the agreed value of the offer"),
+        ("Clarifying negotiation priorities", "Separate essential requirements from negotiable preferences"),
+        ("Confirming an agreement", "Summarise agreed terms and next steps accurately"),
+    ],
+    "customer relationship management": [
+        ("Maintaining a customer relationship", "Use reliable follow-up and accurate interaction records"),
+        ("Handling an unhappy customer", "Acknowledge the issue and agree on an appropriate next step"),
+        ("Following up after a sale", "Check whether the delivered solution met the customer's expectations"),
+        ("Managing customer expectations", "Communicate realistic timelines and commitments"),
+        ("Building customer trust", "Provide accurate information and keep commitments"),
+    ],
+    "follow-up": [
+        ("Following up after a product pitch", "Choose a timely next step that reflects the customer's stated interest"),
+        ("Following up after no reply", "Use a professional reminder without overwhelming the prospect"),
+        ("Recording a follow-up commitment", "Capture the agreed action and date accurately"),
+        ("Closing the loop with a customer", "Confirm an outcome rather than assuming the issue is resolved"),
+        ("Choosing when to follow up", "Respect the customer's timeline while keeping the opportunity active"),
+    ],
+    "target orientation": [
+        ("Prioritising opportunities near a target deadline", "Focus effort on realistic opportunities without misrepresenting progress"),
+        ("Monitoring progress toward a sales target", "Compare current progress with the target and available time"),
+        ("Balancing volume and quality", "Avoid pursuing unsuitable leads only to increase activity counts"),
+        ("Responding to a target shortfall", "Choose an actionable and ethical recovery plan"),
+        ("Reporting sales progress", "Communicate results accurately against the agreed target"),
+    ],
+    "persuasion": [
+        ("Matching a benefit to a customer need", "Use relevant evidence rather than pressure to explain value"),
+        ("Responding to hesitation", "Ask about the concern before making a recommendation"),
+        ("Supporting a recommendation", "Use accurate, relevant product information to support a claim"),
+        ("Addressing a misconception", "Correct inaccurate assumptions respectfully and clearly"),
+        ("Encouraging a next step", "Propose a clear next step without making unsupported promises"),
+    ],
+    "teamwork": [
+        ("Handing a qualified lead to a colleague", "Share accurate customer context and agreed next steps"),
+        ("Coordinating with marketing", "Provide useful lead feedback while keeping customer details accurate"),
+        ("Supporting a teammate's customer meeting", "Agree on roles and avoid conflicting messages"),
+        ("Sharing a customer update", "Communicate relevant information through the agreed team process"),
+        ("Resolving a team handoff gap", "Clarify ownership and next steps instead of duplicating work"),
+    ],
+}
+
+
+def _role_domain_guidance(
+    *,
+    skill_name: str,
+    skill_category: str,
+    job_title: str | None,
+    job_description: str | None,
+) -> str:
+    category = "non_technical" if str(skill_category or "").strip().lower() == "non_technical" else "technical"
+    title = _normalize_text(job_title, 255) or "not provided"
+    description = _normalize_text(job_description, 3500) or "not provided"
+    skill = _normalize_text(skill_name, 100) or "not provided"
+
+    if category == "non_technical":
+        return f"""
+ROLE / JOB CONTEXT — HARD DOMAIN BOUNDARY
+- Job title: {title}
+- Confirmed skill: {skill}
+- Skill category: non_technical / professional skill
+- Job description context: {description}
+
+NON-TECHNICAL PLANNING RULES
+- Interpret the skill only in the occupational context supported by the title and job description.
+- Plan professional concepts, responsibilities, decisions, and situations a candidate in this role would actually face.
+- A broad skill like problem-solving must be interpreted in the job domain. For Sales Executive, that means customer needs, lead prioritisation, sales objections, follow-up, negotiation, product value, and targets when supported by the JD—not algorithms or abstract computer-science puzzles.
+- Do not use programming, greedy-choice properties, recursion, permutations, memoization, graph traversal, syntax errors, memory leaks, compilers, code snippets, or algorithm deployment unless the supplied JD explicitly requires that topic.
+- For easy conceptual questions, select a genuine role-related concept (such as lead qualification or consultative selling for a sales job), not a generic definition of a broad transferable skill.
+- Keep every target answerable at the requested difficulty and response format.
+- Do not invent tools, qualifications, duties, or specialist knowledge absent from the supplied JD.
+- Older/reference questions may guide response style only; ignore their subject matter if it conflicts with this job domain.
+""".strip()
+
+    return f"""
+ROLE / JOB CONTEXT
+- Job title: {title}
+- Confirmed skill: {skill}
+- Skill category: technical
+- Job description context: {description}
+- Keep every technical target in the confirmed skill and the scope supported by the job description.
+""".strip()
+
 def _technical_plan_quality_errors(
     plan: QuestionGenerationPlan,
     *,
     skill_name: str,
+    skill_category: str = "technical",
 ) -> list[str]:
-    """Run stable skill-level checks on planner output."""
+    """Validate that plan targets are sufficiently specific and role-appropriate."""
 
     errors: list[str] = []
-
-    problem_tokens = _meaningful_tokens(
-        plan.problem_target
-    )
-
-    knowledge_tokens = _meaningful_tokens(
-        plan.knowledge_target
-    )
+    is_non_technical = str(skill_category or "").strip().lower() == "non_technical"
+    problem_tokens = _meaningful_tokens(plan.problem_target)
+    knowledge_tokens = _meaningful_tokens(plan.knowledge_target)
 
     if len(problem_tokens) < 2:
         errors.append(
             "Planner produced an under-specified problem target. "
-            "Describe a concrete technical problem or mechanism rather than a generic goal."
+            + (
+                "Describe a concrete professional situation or decision."
+                if is_non_technical
+                else "Describe a concrete technical problem or mechanism rather than a generic goal."
+            )
         )
 
     if len(knowledge_tokens) < 2:
         errors.append(
             "Planner produced an under-specified knowledge target. "
-            "Name the concrete technical mechanism or concept being tested."
+            + (
+                "Name the specific role-related concept or professional practice being tested."
+                if is_non_technical
+                else "Name the concrete technical mechanism or concept being tested."
+            )
         )
 
-    # The confirmed skill remains a hard generation constraint and is supplied
-    # directly to the generation model. Literal string matching is intentionally
-    # not required because native skill terminology may be more appropriate.
+    if is_non_technical:
+        plan_material = " ".join(
+            [
+                plan.problem_target,
+                plan.knowledge_target,
+                plan.scenario_context,
+                plan.example_context or "",
+                plan.storyline,
+                plan.uniqueness_anchor,
+            ]
+        )
+        leakage = _non_technical_plan_leakage(plan_material)
+        if leakage:
+            errors.append(
+                "Planner included computer-science content in a non-technical plan: "
+                + ", ".join(leakage)
+                + "."
+            )
+
+    # The exact skill stays a hard constraint; its name need not appear verbatim in
+    # every semantic target when the context makes the relationship clear.
     _ = skill_name
-
     return errors
-
 
 def _plan_matches_manager_intent(
     plan: QuestionGenerationPlan,
@@ -591,7 +704,6 @@ def _plan_matches_manager_intent(
 
     return True
 
-
 def _hard_pattern_for_slot(
     section_type: str,
     difficulty: str,
@@ -605,7 +717,6 @@ def _hard_pattern_for_slot(
         return "concept"
 
     return None
-
 
 def _pattern_instruction(
     intent: ManagerPromptInterpretation | None,
@@ -668,7 +779,6 @@ def _pattern_instruction(
         "consistent with the slot."
     )
 
-
 def _efficiency_instruction(
     intent: ManagerPromptInterpretation | None,
 ) -> str:
@@ -682,7 +792,6 @@ def _efficiency_instruction(
         )
 
     return "- No explicit efficiency requirement was detected."
-
 
 def _build_planner_prompt(
     *,
@@ -698,6 +807,9 @@ def _build_planner_prompt(
     reference_question_text: str | None,
     pattern_reference_question_texts: list[str] | None,
     excluded_question_texts: list[str] | None,
+    skill_category: str = "technical",
+    job_title: str | None = None,
+    job_description: str | None = None,
 ) -> str:
     """Build the semantic planner prompt."""
 
@@ -774,9 +886,71 @@ def _build_planner_prompt(
         or "none"
     )
 
-    experience_guidance = _experience_level_guidance(
-        experience_required
+    normalized_skill_category = (
+        "non_technical"
+        if str(skill_category or "").strip().lower() == "non_technical"
+        else "technical"
     )
+    normalized_job_title = _normalize_text(job_title, 255) or None
+    normalized_job_description = _normalize_text(job_description, 3500) or None
+    experience_guidance = _experience_level_guidance(
+        experience_required,
+        normalized_skill_category,
+    )
+    role_domain_guidance = _role_domain_guidance(
+        skill_name=skill_name,
+        skill_category=normalized_skill_category,
+        job_title=normalized_job_title,
+        job_description=normalized_job_description,
+    )
+
+    if normalized_skill_category == "non_technical":
+        planning_rules = f"""
+1. Produce one plan per candidate; all plans must be materially different.
+2. Keep every plan inside the confirmed non-technical job role, selected skill, section, difficulty, and response format.
+3. Interpret broad skills (especially problem-solving) in the actual occupational context supplied by the job title and JD. For a Sales Executive, use customer needs, lead qualification, objection handling, negotiation, follow-up, and targets only where appropriate to the JD.
+4. Do not turn professional problem-solving into algorithms, greedy-choice properties, permutations, recursion, memoization, code, SQL, software debugging, memory leaks, or computer-science trivia unless the JD explicitly requires that subject.
+5. For conceptual questions, define a job-relevant knowledge target. For applied or scenario questions, use a concrete professional situation, constraint, decision, or customer/workflow goal.
+6. The problem target and knowledge target must describe the same role-relevant issue or concept.
+7. Do not invent responsibilities, products, qualifications, tools, or customer situations unsupported by the JD.
+8. Treat manager guidance as an authoring requirement except where it conflicts with hard slot/role constraints.
+9. Preserve the requested difficulty and question type; use one clearly defensible answer for an MCQ.
+10. Do not copy the underlying target, scenario, or storyline from excluded questions.
+11. Before output, verify that every plan belongs to the specified role and non-technical skill, uses role-appropriate language, and could become one clear assessment question.
+{_pattern_instruction(
+    manager_interpretation,
+    section_type=section_type,
+    difficulty=difficulty,
+    generation_focus=generation_focus,
+)}
+""".strip()
+    else:
+        planning_rules = f"""
+1. Produce one plan per candidate. Candidate 1 through candidate {count} must be materially different.
+2. "Different" means a different underlying technical problem/task/knowledge target, mechanism, or failure mode. Changing only names, numbers, options, APIs, actors, or wording does NOT count.
+3. Keep every plan inside the same confirmed skill, section, difficulty and response format.
+4. Treat the manager's structured intent as an authoring requirement, not a suggestion.
+{_pattern_instruction(
+    manager_interpretation,
+    section_type=section_type,
+    difficulty=difficulty,
+    generation_focus=generation_focus,
+)}
+5. For technical skills, the TECHNICAL TASK comes first and the story comes second. The problem_target and knowledge_target must name a real skill-native mechanism, command, configuration, lifecycle behaviour, failure mode, data operation, or design choice.
+6. The problem_target and knowledge_target must describe the same concrete technical area.
+7. Use established, straightforward mechanisms appropriate to the confirmed skill. Avoid invented APIs, unsupported tools, and unnecessary implementation detail.
+8. Manager examples are contextual story material unless explicitly mandatory; use them naturally without letting them replace the technical task.
+9. For scenarios, provide a concrete short situation with a real constraint, decision, symptom, or goal. The technical skill must matter to the decision.
+{_efficiency_instruction(manager_interpretation)}
+10. When efficiency/performance is requested, make it a concrete technical bottleneck or decision, not just the word "efficient".
+11. Use manager dissatisfaction as quality feedback; never change hard constraints because of sentiment.
+12. Preserve requested difficulty and treat experience as a sophistication signal.
+13. Apply the JD experience requirement without inventing architecture or seniority.
+14. Do not copy an existing question's target, scenario, or storyline.
+15. The uniqueness anchor must describe the technical difference between plans.
+16. Keep each field concise and internally consistent.
+17. Before output, verify that skill, plan targets, scenario, pattern, difficulty, and question type agree.
+""".strip()
 
     return f"""
 You are Evalyn's assessment question planner.
@@ -789,6 +963,8 @@ HARD SLOT CONSTRAINTS — never override:
 - Section type: {section_type}
 - Difficulty: {difficulty}
 - Question type: {question_type}
+
+{role_domain_guidance}
 
 MANAGER MESSAGE:
 
@@ -814,100 +990,7 @@ EXISTING QUESTIONS TO AVOID:
 
 PLANNING RULES:
 
-1. Produce one plan per candidate. Candidate 1 through candidate {count} must be materially different.
-
-2. "Different" means a different underlying technical problem/task/knowledge target,
-   mechanism, or failure mode. Changing only names, numbers, options, APIs, actors,
-   or wording does NOT count.
-
-3. Keep every plan inside the same confirmed skill, section, difficulty and response format.
-
-4. Treat the manager's structured intent as an authoring requirement, not a suggestion.
-
-{_pattern_instruction(
-    manager_interpretation,
-    section_type=section_type,
-    difficulty=difficulty,
-    generation_focus=generation_focus,
-)}
-
-5. For technical skills, the TECHNICAL TASK comes first and the story comes second.
-   The problem_target and knowledge_target must name an actual skill-native mechanism,
-   command, configuration, lifecycle behavior, failure mode, data operation,
-   or design choice. Do NOT turn the manager's business example into the technical
-   problem itself.
-
-6. The problem_target and knowledge_target must describe the same concrete technical area.
-
-   Bad example:
-   "optimize storage space" -> "Docker container management"
-
-   Good example:
-   "reduce Docker build context size" -> "Docker build context and .dockerignore"
-
-7. Use established, straightforward mechanisms appropriate to the confirmed skill.
-   Do not invent obscure algorithms, fake APIs, unsupported tools, or unnecessary
-   implementation details. For easy questions, prefer a familiar mechanism that
-   can yield one clear best answer.
-
-8. Manager examples such as fruits, vegetables, stores, teams, etc. are contextual
-   story material unless explicitly made mandatory technical content. Use them naturally
-   in a realistic domain setting. For example, a fruit-and-vegetable store can be the
-   business using Docker; do not invent a farmer who somehow manages containers unless
-   that is natural to the scenario.
-
-9. For a scenario request, create a concrete short situation with a real constraint,
-   decision, symptom, or goal. The technical skill must matter to the decision;
-   the scenario must not be decorative filler.
-
-{_efficiency_instruction(manager_interpretation)}
-
-10. When efficiency/performance is requested, make it a technical bottleneck or decision
-    tied to the planned mechanism: image size/build time, CPU or memory usage, query cost,
-    latency, throughput, I/O, network traffic, cache reuse, etc. Do not merely write
-    "efficient" or "reduce costs".
-
-11. Use manager dissatisfaction/frustration only as feedback about quality. Prefer clearer,
-    more interesting, more varied plans; never change hard constraints because of sentiment.
-
-12. Preserve requested difficulty. Experience calibration may raise or lower the sophistication
-    of the scenario, reasoning depth, troubleshooting depth, or professional judgment within
-    that difficulty, but it MUST NOT change the requested difficulty itself.
-
-13. Apply the JD experience requirement as a sophistication signal:
-    - Fresher/0 years: foundational mechanisms, familiar APIs/commands, straightforward
-      implementation, and simple reasoning.
-    - 1–2 years: routine implementation, common debugging, familiar APIs, modest reasoning.
-    - 2–4 years: practical production-style problems, realistic constraints, and moderate
-      trade-offs where compatible with the slot.
-    - 4–6 years: deeper troubleshooting, reliability/performance implications, and meaningful
-      implementation trade-offs where compatible with the slot.
-    - 6+ years: deeper production situations, failure analysis, performance/reliability trade-offs,
-      and architecture-aware reasoning where compatible with the slot.
-    Never invent advanced architecture merely because the JD asks for more experience.
-
-14. Do not copy any existing question's underlying target, scenario, or storyline.
-
-15. Do not invent unrelated candidate backgrounds, job histories, or qualifications in
-    uniqueness_anchor. The anchor must describe the technical difference between this plan
-    and the others.
-
-16. Keep each field concise so a configured LLM can execute the later generation reliably.
-
-17. Before output, silently check:
-
-    (a) the plan explicitly belongs to {skill_name};
-
-    (b) problem_target and knowledge_target are technically connected;
-
-    (c) scenario_context supports that technical target;
-
-    (d) efficiency_focus affects the real technical decision when requested;
-
-    (e) the experience level is reflected through sophistication rather than topic drift;
-
-    (f) the plan could become one clear question with a single defensible answer.
-
+{planning_rules}
 OUTPUT ONLY JSON. No markdown. No explanations.
 
 For example_context and efficiency_focus, return an empty string when the field
@@ -928,7 +1011,6 @@ Each plan must contain:
 - storyline
 - uniqueness_anchor
 """.strip()
-
 
 def _infer_plan_pattern(
     raw: dict,
@@ -1065,7 +1147,6 @@ def _infer_plan_pattern(
 
     return "concept"
 
-
 def _normalize_pattern(
     value: object,
     *,
@@ -1107,7 +1188,6 @@ def _normalize_pattern(
         return hard_pattern
 
     return pattern  # type: ignore[return-value]
-
 
 def _normalize_raw_plan(
     raw: dict,
@@ -1219,7 +1299,6 @@ def _normalize_raw_plan(
 
     return normalized
 
-
 def _parse_plans(
     payload: object,
     *,
@@ -1256,6 +1335,39 @@ def _parse_plans(
             "Planner response was neither a JSON object nor a JSON array."
         )
 
+    # Some providers return array positions as 0-based candidate indexes
+    # (0, 1, 2) even though Evalyn's internal contract is 1-based (1, 2, 3).
+    # Detect that convention for the whole batch before validating individual
+    # plans. Normalizing only candidate 0 in isolation would create duplicate
+    # indexes (1, 1, 2), so shift the complete, contiguous zero-based sequence.
+    explicit_indexes: list[int | None] = []
+    all_items_are_objects = all(
+        isinstance(item, dict)
+        for item in raw_plans
+    )
+
+    if all_items_are_objects:
+        for item in raw_plans:
+            raw_index = item.get(
+                "candidate_index",
+                item.get("candidate_number"),
+            )
+            if raw_index is None:
+                explicit_indexes.append(None)
+                continue
+            try:
+                explicit_indexes.append(int(raw_index))
+            except (TypeError, ValueError):
+                explicit_indexes.append(None)
+
+    zero_based_indexes = (
+        all_items_are_objects
+        and bool(raw_plans)
+        and all(index is not None for index in explicit_indexes)
+        and sorted(int(index) for index in explicit_indexes if index is not None)
+        == list(range(len(raw_plans)))
+    )
+
     plans: list[QuestionGenerationPlan] = []
 
     for raw_position, raw in enumerate(
@@ -1272,8 +1384,20 @@ def _parse_plans(
                 )
             continue
 
+        raw_for_normalization = raw
+        if zero_based_indexes:
+            raw_for_normalization = dict(raw)
+            index_key = (
+                "candidate_index"
+                if "candidate_index" in raw_for_normalization
+                else "candidate_number"
+            )
+            raw_for_normalization[index_key] = (
+                int(explicit_indexes[raw_position - 1]) + 1
+            )
+
         normalized = _normalize_raw_plan(
-            raw,
+            raw_for_normalization,
             raw_position,
             section_type=section_type,
             difficulty=difficulty,
@@ -1308,13 +1432,13 @@ def _parse_plans(
 
     return plans
 
-
 def _validate_plan_set(
     plans: list[QuestionGenerationPlan],
     *,
     expected_indexes: list[int],
     skill_name: str,
     manager_interpretation: ManagerPromptInterpretation | None = None,
+    skill_category: str = "technical",
 ) -> list[QuestionGenerationPlan]:
     """Validate indexes and semantic uniqueness for planner results."""
 
@@ -1420,6 +1544,7 @@ def _validate_plan_set(
         errors = _technical_plan_quality_errors(
             plan,
             skill_name=skill_name,
+            skill_category=skill_category,
         )
 
         if errors:
@@ -1433,9 +1558,13 @@ def _validate_plan_set(
             for index, errors in quality_errors.items()
         )
 
+        reason = (
+            "role-inconsistent question plans"
+            if str(skill_category or "").strip().lower() == "non_technical"
+            else "technically disconnected question plans"
+        )
         raise QuestionGenerationPlannerError(
-            "Planner returned technically disconnected question plans. "
-            + details
+            f"Planner returned {reason}. " + details
         )
 
     duplicate_anchors: set[str] = set()
@@ -1466,7 +1595,6 @@ def _validate_plan_set(
         )
 
     return ordered
-
 
 def _plan_uniqueness_keys(
     plans: list[QuestionGenerationPlan],
@@ -1500,7 +1628,6 @@ def _plan_uniqueness_keys(
         knowledge_targets,
     )
 
-
 def _is_semantically_distinct_from_existing(
     candidate: QuestionGenerationPlan,
     existing: list[QuestionGenerationPlan],
@@ -1530,7 +1657,6 @@ def _is_semantically_distinct_from_existing(
         return False
 
     return True
-
 
 _DETERMINISTIC_CONCEPT_TOPICS: dict[
     str,
@@ -1788,25 +1914,34 @@ _DETERMINISTIC_CONCEPT_TOPICS: dict[
     ],
 }
 
-
 def _deterministic_easy_concept_plans(
     *,
     skill_name: str,
     count: int,
     excluded_question_texts: list[str] | None = None,
+    skill_category: str = "technical",
+    job_title: str | None = None,
+    job_description: str | None = None,
 ) -> list[QuestionGenerationPlan] | None:
-    """Build local plans for common Easy/Conceptual slots."""
+    """Build local easy/concept plans only when the skill-role mapping is known."""
 
     key = " ".join(
-        str(
-            skill_name
-            or ""
-        ).strip().casefold().split()
+        str(skill_name or "").strip().casefold().split()
     )
-
-    topics = _DETERMINISTIC_CONCEPT_TOPICS.get(
-        key
-    )
+    if str(skill_category or "").strip().lower() == "non_technical":
+        normalized_title = " ".join(str(job_title or "").casefold().split())
+        is_sales_role = bool(
+            re.search(r"\b(?:sales|business development)\b", normalized_title)
+        )
+        # These deterministic topics are intentionally sales-specific. For any
+        # other role, let the role-aware planner use the actual title and JD.
+        topics = (
+            _NON_TECHNICAL_CONCEPT_TOPICS.get(key)
+            if is_sales_role
+            else None
+        )
+    else:
+        topics = _DETERMINISTIC_CONCEPT_TOPICS.get(key)
 
     if (
         not topics
@@ -1863,7 +1998,6 @@ def _deterministic_easy_concept_plans(
             return selected
 
     return None
-
 
 def _call_planner(
     prompt: str,
@@ -1948,7 +2082,6 @@ def _call_planner(
             f"Question planning failed: {error_text}"
         ) from exc
 
-
 def plan_question_batch(
     *,
     skill_name: str,
@@ -1967,6 +2100,9 @@ def plan_question_batch(
     reference_question_text: str | None = None,
     pattern_reference_question_texts: list[str] | None = None,
     excluded_question_texts: list[str] | None = None,
+    skill_category: str = "technical",
+    job_title: str | None = None,
+    job_description: str | None = None,
 ) -> list[QuestionGenerationPlan]:
     """Create one materially distinct semantic plan per candidate."""
 
@@ -2006,6 +2142,13 @@ def plan_question_batch(
     normalized_skill_name = " ".join(
         str(skill_name).strip().split()
     )
+    normalized_skill_category = (
+        "non_technical"
+        if str(skill_category or "").strip().lower() == "non_technical"
+        else "technical"
+    )
+    normalized_job_title = _normalize_text(job_title, 255) or None
+    normalized_job_description = _normalize_text(job_description, 3500) or None
 
     normalized_section_type = " ".join(
         str(section_type).strip().split()
@@ -2101,6 +2244,9 @@ def plan_question_batch(
             skill_name=normalized_skill_name,
             count=count,
             excluded_question_texts=excluded_question_texts,
+            skill_category=normalized_skill_category,
+            job_title=normalized_job_title,
+            job_description=normalized_job_description,
         )
 
         if deterministic_plans is not None:
@@ -2114,6 +2260,7 @@ def plan_question_batch(
                 ),
                 skill_name=normalized_skill_name,
                 manager_interpretation=effective_intent,
+                skill_category=normalized_skill_category,
             )
 
     prompt = _build_planner_prompt(
@@ -2129,6 +2276,9 @@ def plan_question_batch(
         reference_question_text=reference_question_text,
         pattern_reference_question_texts=pattern_reference_question_texts,
         excluded_question_texts=excluded_question_texts,
+        skill_category=normalized_skill_category,
+        job_title=normalized_job_title,
+        job_description=normalized_job_description,
     )
 
     try:
@@ -2309,8 +2459,8 @@ def plan_question_batch(
         expected_indexes=expected_indexes,
         skill_name=normalized_skill_name,
         manager_interpretation=effective_intent,
+        skill_category=normalized_skill_category,
     )
-
 
 __all__ = [
     "QuestionGenerationPlan",

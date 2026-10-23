@@ -1,6 +1,7 @@
-﻿
+
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -42,9 +43,29 @@ router = APIRouter(
     tags=["Assessments"],
 )
 
+logger = logging.getLogger(__name__)
+QUEUE_FAILURE_FEEDBACK = (
+    "Automatic grading could not be queued. HR review is required."
+)
+
+
+def _is_retryable_queue_failure(result: Result | None) -> bool:
+    """Return True only for review states caused by enqueue failure.
+
+    Grading/evaluation failures still require human review and must not be
+    automatically retried through the pending-grading endpoint.
+    """
+    return bool(
+        result is not None
+        and result.status == "needs_review"
+        and (result.feedback or "").strip().startswith(
+            "Automatic grading could not be queued."
+        )
+    )
+
 
 def _queue_assessment_scoring(db: Session, attempt_id: int) -> str:
-    """Queue grading after submission without undoing the submitted attempt."""
+    """Queue grading without undoing submission; log and safely classify failures."""
     result = (
         db.query(Result)
         .filter(Result.attempt_id == attempt_id)
@@ -57,9 +78,14 @@ def _queue_assessment_scoring(db: Session, attempt_id: int) -> str:
             return "completed"
         if result.status == "grading":
             return "grading"
-        if result.status == "needs_review":
+        if (
+            result.status == "needs_review"
+            and not _is_retryable_queue_failure(result)
+        ):
             return "needs_review"
 
+    # Commit the grading state before enqueuing. If the request process exits
+    # immediately after enqueueing, the worker can still find the result row.
     try:
         if result is None:
             result = Result(
@@ -72,11 +98,31 @@ def _queue_assessment_scoring(db: Session, attempt_id: int) -> str:
             result.status = "grading"
             result.score = None
             result.feedback = None
+            result.graded_at = None
 
         db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Could not prepare result row before queueing grading for attempt_id=%s",
+            attempt_id,
+        )
+        return _persist_queue_failure(db, attempt_id)
 
+    # Keep enqueue failure handling separate from job-ID persistence. If RQ
+    # accepted the job but the later DB commit fails, do not claim that the job
+    # could not be queued: the worker may already be processing it.
+    try:
         job = enqueue_assessment_scoring(attempt_id=attempt_id)
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Could not enqueue assessment grading for attempt_id=%s",
+            attempt_id,
+        )
+        return _persist_queue_failure(db, attempt_id)
 
+    try:
         # The worker can finish before this request stores the RQ job ID.
         db.expire_all()
         result = (
@@ -92,10 +138,20 @@ def _queue_assessment_scoring(db: Session, attempt_id: int) -> str:
             return result.status or "grading"
 
         return "grading"
-
     except Exception:
         db.rollback()
+        logger.exception(
+            "Grading job was queued for attempt_id=%s, but saving its job ID failed",
+            attempt_id,
+        )
+        # The RQ job was successfully created. Leave the persisted result in
+        # the already-committed grading state; do not mislabel it as unqueued.
+        return "grading"
 
+
+def _persist_queue_failure(db: Session, attempt_id: int) -> str:
+    """Persist a retryable review state after grading could not be queued."""
+    try:
         result = (
             db.query(Result)
             .filter(Result.attempt_id == attempt_id)
@@ -103,33 +159,30 @@ def _queue_assessment_scoring(db: Session, attempt_id: int) -> str:
             .first()
         )
 
-        try:
-            if result is None:
-                result = Result(
-                    attempt_id=attempt_id,
-                    score=None,
-                    status="needs_review",
-                    feedback=(
-                        "Automatic grading could not be queued. "
-                        "HR review is required."
-                    ),
-                    graded_at=utc_now(),
-                )
-                db.add(result)
-            else:
-                result.status = "needs_review"
-                result.score = None
-                result.feedback = (
-                    "Automatic grading could not be queued. "
-                    "HR review is required."
-                )
-                result.graded_at = utc_now()
+        if result is None:
+            result = Result(
+                attempt_id=attempt_id,
+                score=None,
+                status="needs_review",
+                feedback=QUEUE_FAILURE_FEEDBACK,
+                graded_at=utc_now(),
+            )
+            db.add(result)
+        else:
+            result.status = "needs_review"
+            result.score = None
+            result.feedback = QUEUE_FAILURE_FEEDBACK
+            result.graded_at = utc_now()
 
-            db.commit()
-        except Exception:
-            db.rollback()
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Could not persist the grading-queue failure state for attempt_id=%s",
+            attempt_id,
+        )
 
-        return "needs_review"
+    return "needs_review"
 
 
 def _get_question_set_for_manager(
@@ -1405,7 +1458,11 @@ def queue_pending_assessment_results_for_hr(
             already_grading += 1
             continue
 
-        if result is not None and result.status == "needs_review":
+        if (
+            result is not None
+            and result.status == "needs_review"
+            and not _is_retryable_queue_failure(result)
+        ):
             needs_review += 1
             continue
 

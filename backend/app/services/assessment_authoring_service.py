@@ -31,6 +31,7 @@ from app.services.llm_service import (
     LLMServiceError,
     QUESTION_BATCH_HARD_LIMIT,
     build_generation_variation_instruction,
+    find_non_technical_domain_leakage,
     generate_questions_from_skills,
 )
 from app.services.question_service import _normalize_question_text
@@ -144,6 +145,57 @@ def _get_slot(
     )
     return slot, question_set
 
+
+
+def _get_job_skill_generation_context(
+    db: Session,
+    job_id: int,
+    skill_id: int,
+) -> dict[str, str | None]:
+    """Load the job title/JD and the per-job skill category for role-aware generation.
+
+    Skill categories belong to the JobSkill association; the global Skill model does not
+    carry this field. Missing/legacy classification defaults to technical for backward
+    compatibility rather than silently treating unknown data as a non-technical role.
+    """
+    job_row = db.execute(
+        text(
+            """
+            SELECT title, description, experience_required
+            FROM jobs
+            WHERE id = :job_id
+            LIMIT 1
+            """
+        ),
+        {"job_id": job_id},
+    ).mappings().first() or {}
+
+    skill_row = db.execute(
+        text(
+            """
+            SELECT category
+            FROM job_skills
+            WHERE job_id = :job_id
+              AND skill_id = :skill_id
+            LIMIT 1
+            """
+        ),
+        {"job_id": job_id, "skill_id": skill_id},
+    ).mappings().first() or {}
+
+    raw_category = str(skill_row.get("category") or "technical").strip().lower()
+    category = raw_category if raw_category in {"technical", "non_technical"} else "technical"
+    description = " ".join(str(job_row.get("description") or "").strip().split())[:3500] or None
+
+    return {
+        "job_title": " ".join(str(job_row.get("title") or "").strip().split())[:255] or None,
+        "job_description": description,
+        "experience_required": " ".join(
+            str(job_row.get("experience_required") or "").strip().split()
+        )[:100] or None,
+        "skill_category": category,
+        "prompt_skill_category": "Professional Skill" if category == "non_technical" else "Other",
+    }
 
 def _section_description(
     section_type: str,
@@ -1441,6 +1493,7 @@ def _get_excluded_question_texts(
                 None
             ),
         )
+        .order_by(QuestionGenerationAttempt.attempt_number.desc())
         .all()
     )
 
@@ -1551,8 +1604,39 @@ def _validate_candidate_against_slot(
     slot: QuestionSlot,
     skill: Skill,
     excluded_texts: list[str],
+    skill_category: str = "technical",
+    job_title: str | None = None,
+    job_description: str | None = None,
 ) -> tuple[bool, list[str]]:
     errors: list[str] = []
+
+    if str(skill_category or "").strip().lower() == "non_technical":
+        question_text = str(getattr(generated, "question_text", "") or "")
+        stem_leakage = find_non_technical_domain_leakage(
+            question_text,
+            job_title=job_title,
+            job_description=job_description,
+        )
+        candidate_material = "\n".join(
+            [
+                question_text,
+                *(getattr(generated, "options", None) or []),
+                str(getattr(generated, "correct_answer", "") or ""),
+                str(getattr(generated, "explanation", "") or ""),
+            ]
+        )
+        material_leakage = find_non_technical_domain_leakage(
+            candidate_material,
+            job_title=job_title,
+            job_description=job_description,
+        )
+        leakage = list(dict.fromkeys(stem_leakage + material_leakage))
+        if leakage:
+            errors.append(
+                "Generated question is outside the confirmed non-technical role domain: "
+                + ", ".join(leakage)
+                + "."
+            )
 
     if (
         generated.skill_name.strip().lower()
@@ -1765,6 +1849,12 @@ def generate_slot_question(
             "Target skill is not part of the confirmed job skill scope."
         )
 
+    role_context = _get_job_skill_generation_context(
+        db,
+        question_set.job_id,
+        skill.id,
+    )
+
     previous_question_id = slot.current_question_id
 
     previous_question = (
@@ -1833,14 +1923,7 @@ def generate_slot_question(
                 {
                     "skill_id": skill.id,
                     "skill_name": skill.name,
-                    "category": (
-                        getattr(
-                            skill,
-                            "category",
-                            None,
-                        )
-                        or "Other"
-                    ),
+                    "category": role_context["prompt_skill_category"],
                 }
             ],
             number_of_questions=1,
@@ -1862,6 +1945,11 @@ def generate_slot_question(
             pattern_reference_question_texts=pattern_examples,
             manager_prompt=manager_prompt,
             generation_strategy=generation_strategy,
+            generation_focus=generation_focus,
+            experience_required=role_context["experience_required"],
+            skill_category=str(role_context["skill_category"] or "technical"),
+            job_title=role_context["job_title"],
+            job_description=role_context["job_description"],
         )
 
         if not generated_items:
@@ -1877,6 +1965,9 @@ def generate_slot_question(
                 slot,
                 skill,
                 excluded_texts,
+                skill_category=str(role_context["skill_category"] or "technical"),
+                job_title=role_context["job_title"],
+                job_description=role_context["job_description"],
             )
         )
 
@@ -2298,6 +2389,12 @@ def generate_slot_question_batch(
             "Target skill is not part of the confirmed job skill scope."
         )
 
+    role_context = _get_job_skill_generation_context(
+        db,
+        question_set.job_id,
+        skill.id,
+    )
+
     manager_interpretation = None
 
     if normalized_manager_prompt:
@@ -2366,6 +2463,10 @@ def generate_slot_question_batch(
                 manager_prompt=normalized_manager_prompt,
                 generation_focus=effective_generation_focus,
                 manager_interpretation=manager_interpretation,
+                experience_required=role_context["experience_required"],
+                skill_category=str(role_context["skill_category"] or "technical"),
+                job_title=role_context["job_title"],
+                job_description=role_context["job_description"],
                 reference_question_text=(
                     previous_question.question_text
                     if previous_question
@@ -2393,6 +2494,7 @@ def generate_slot_question_batch(
     accepted_for_validation = list(
         excluded_texts
     )
+    recent_batch_question_texts: list[str] = []
 
     next_attempt_number = _get_next_attempt_number(
         db,
@@ -2495,26 +2597,20 @@ def generate_slot_question_batch(
                             {
                                 "skill_id": skill.id,
                                 "skill_name": skill.name,
-                                "category": (
-                                    getattr(
-                                        skill,
-                                        "category",
-                                        None,
-                                    )
-                                    or "Other"
-                                ),
+                                "category": role_context["prompt_skill_category"],
                             }
                         ],
                         number_of_questions=request_count,
                         difficulty=slot.difficulty,
-                        # Keep the prompt compact. The complete exclusion list is
-                        # still used by the server-side validator below, so reducing
-                        # prompt context does not weaken duplicate protection.
-                        excluded_question_texts=(
-                            accepted_for_validation[
-                                -8:
-                            ]
-                        ),
+                        # Keep the prompt compact, but prioritize the most recent
+                        # generated attempts and questions already created in this batch.
+                        # Previously the tail of accepted_for_validation was dominated
+                        # by question-bank rows, so recent draft candidates often never
+                        # reached the model and their stem patterns were repeated.
+                        excluded_question_texts=list(dict.fromkeys([
+                            *recent_batch_question_texts[-4:],
+                            *excluded_texts[:8],
+                        ])),
                         regeneration_mode=bool(
                             previous_question
                             or accepted_for_validation
@@ -2541,6 +2637,10 @@ def generate_slot_question_batch(
                         generation_plan=(
                             current_generation_plan
                         ),
+                        experience_required=role_context["experience_required"],
+                        skill_category=str(role_context["skill_category"] or "technical"),
+                        job_title=role_context["job_title"],
+                        job_description=role_context["job_description"],
                         variation_instruction=(
                             recovery_prefix
                             + (
@@ -2605,12 +2705,20 @@ def generate_slot_question_batch(
             valid_items_this_chunk = 0
 
             for candidate in generated_items:
+                if candidate.question_text:
+                    recent_batch_question_texts.append(
+                        candidate.question_text
+                    )
+
                 valid, _validation_errors = (
                     _validate_candidate_against_slot(
                         candidate,
                         slot,
                         skill,
                         accepted_for_validation,
+                        skill_category=str(role_context["skill_category"] or "technical"),
+                        job_title=role_context["job_title"],
+                        job_description=role_context["job_description"],
                     )
                 )
 

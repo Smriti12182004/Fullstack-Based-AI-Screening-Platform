@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
@@ -24,6 +25,31 @@ class User(Base):
 
     full_name: Mapped[str | None] = mapped_column(
         String(100),
+        nullable=True,
+    )
+
+    phone_number: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
+
+    job_title: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    department: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    location: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+
+    bio: Mapped[str | None] = mapped_column(
+        String(500),
         nullable=True,
     )
 

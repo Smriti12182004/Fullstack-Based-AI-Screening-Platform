@@ -1014,6 +1014,154 @@ FORMATTING
     return code_required, output_required, instructions
 
 
+
+_NON_TECHNICAL_TECHNICAL_LEAKAGE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("greedy-choice property", r"\bgreedy(?:\s+choice)?\s+propert(?:y|ies)\b"),
+    ("greedy algorithm", r"\bgreedy\s+algorithm\b"),
+    ("algorithmic design", r"\balgorithmic\s+design\b"),
+    ("computer-science algorithm", r"\b(?:algorithm|algorithms|permutation|permutations|memoization|recursion|recursive|graph traversal|binary tree|dynamic programming|time complexity|space complexity)\b"),
+    ("programming implementation", r"\b(?:syntax errors?|memory leaks?|compiler|programming language|source code|code snippet|software debugging)\b"),
+    ("algorithm deployment or hardware sizing", r"\b(?:deploy(?:ing|ment)?\s+(?:the\s+)?algorithm|hardware limits required to deploy|algorithm in production)\b"),
+)
+
+
+def find_non_technical_domain_leakage(
+    value: str | None,
+    *,
+    job_title: str | None = None,
+    job_description: str | None = None,
+) -> list[str]:
+    """Return clear computer-science topics that are out of place in a non-technical skill assessment.
+
+    The check is deliberately narrow: terms such as customer, product, system, root cause,
+    or problem-solving are not blocked on their own. A non-technical skill can still belong
+    to a role in a technology company; only strong CS/programming indicators are rejected.
+    """
+    text = " ".join(str(value or "").casefold().split())
+    if not text:
+        return []
+
+    matches: list[str] = []
+    for label, pattern in _NON_TECHNICAL_TECHNICAL_LEAKAGE_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE) and label not in matches:
+            matches.append(label)
+
+    # For a Sales Executive role, generic "problem-solving" questions are not enough:
+    # the question stem must visibly apply the skill to sales/customer work.
+    normalized_title = " ".join(str(job_title or "").casefold().split())
+    if re.search(r"\b(?:sales|business development)\b", normalized_title):
+        sales_context_terms = (
+            "customer", "client", "prospect", "lead", "sales", "product", "service",
+            "negotiation", "objection", "purchase", "deal", "pitch", "quota", "target",
+            "revenue", "pipeline", "follow-up", "follow up", "buyer", "closing",
+            "conversion", "customer need", "customer requirement", "sales executive",
+        )
+        if not any(term in text for term in sales_context_terms):
+            matches.append("missing sales-role context")
+
+    return list(dict.fromkeys(matches))
+
+
+def _role_domain_generation_guidance(
+    *,
+    skill_category: str,
+    skill_name: str,
+    job_title: str | None,
+    job_description: str | None,
+) -> str:
+    """Build explicit role-domain guidance for the question authoring model."""
+    category = str(skill_category or "technical").strip().lower()
+    title = " ".join(str(job_title or "").strip().split())[:255] or "not provided"
+    description = " ".join(str(job_description or "").strip().split())[:3500] or "not provided"
+    normalized_skill = " ".join(str(skill_name or "").strip().split()) or "not provided"
+
+    if category != "non_technical":
+        return f"""
+ROLE / JOB CONTEXT
+- Job title: {title}
+- Confirmed skill: {normalized_skill}
+- Skill category: technical
+- Job description context: {description}
+- Keep the question grounded in this job's stated scope as well as the selected technical skill.
+- Do not invent requirements or technologies that the job description does not support.
+""".strip()
+
+    return f"""
+ROLE / JOB CONTEXT — HARD DOMAIN BOUNDARY
+- Job title: {title}
+- Confirmed skill: {normalized_skill}
+- Skill category: non_technical / professional skill
+- Job description context: {description}
+
+NON-TECHNICAL AUTHORING RULES — MUST FOLLOW
+- Interpret the selected skill in the occupational context of the job title and job description.
+- Assess work tasks, professional judgement, communication, customer handling, prioritization,
+  persuasion, coordination, lead qualification, negotiation, or other responsibilities only
+  where they fit the selected skill and supplied job description.
+- A broad skill such as "problem-solving" means solving realistic problems faced in this job,
+  not a generic computer-science puzzle.
+- For a Sales Executive role, use sales/customer scenarios such as understanding a customer's
+  needs, qualifying and prioritizing leads, responding to objections, follow-up, negotiation,
+  presenting value, and working toward targets when relevant to the JD.
+- Never substitute algorithms, greedy-choice properties, recursion, permutations, memoization,
+  graph traversal, programming syntax, memory leaks, compiler behaviour, code snippets, or
+  algorithm deployment for a professional-skill question unless the supplied job description
+  explicitly makes that subject part of the role.
+- For an easy conceptual question, ask about a genuine concept used in the role (for example,
+  lead qualification or consultative selling for a sales job). Keep it direct and foundational.
+- For applied/scenario patterns, use realistic job situations and professionally defensible
+  choices; do not turn the assessment into a coding or computer-science test.
+- Existing/reference questions may guide style only. Ignore their content if it is from a different
+  occupational domain or conflicts with the supplied job title and JD.
+- Stay faithful to the supplied job title, description and selected skill. Do not infer tools,
+  responsibilities, or specialist knowledge that the source does not support.
+""".strip()
+
+
+_NON_TECHNICAL_QUESTION_AUTHORING_SYSTEM_PROMPT = """
+QUESTION AUTHORING SYSTEM — EVALYN
+
+ROLE
+You write assessment questions for the specific job title, job description, selected skill,
+section, difficulty, and response format provided in the request.
+
+CORE RULE
+The job domain is a hard constraint. A broad transferable skill must be assessed in the
+actual occupational context, not defaulted to computer science or software engineering.
+
+FOR A NON-TECHNICAL / PROFESSIONAL SKILL
+- Write about the practical responsibilities and decisions described by the job title and JD.
+- For a Sales Executive, suitable domains include prospects, lead qualification, customer needs,
+  product benefits, sales conversations, objection handling, negotiation, follow-up, and targets
+  where those subjects fit the JD.
+- A skill such as problem-solving means solving a realistic problem in that role.
+- Do not generate computer-science riddles, algorithms, greedy-choice properties, recursion,
+  permutations, memoization, graph traversal, programming syntax, memory leaks, compiler issues,
+  code snippets, SQL, or algorithm deployment unless the JD explicitly requires that subject.
+- Do not import technical content from old/reference questions when it conflicts with the job domain.
+- For easy conceptual questions, ask one direct, foundational, role-relevant concept question.
+  For applied/scenario questions, describe a concrete workplace situation and ask for the best
+  professional response or decision.
+- Use plain professional language that a candidate for the stated role would understand.
+- Do not invent products, regulations, tools, policies, responsibilities, or qualifications
+  not supported by the supplied JD.
+
+QUALITY
+- The stem must test the selected skill, not merely mention its name.
+- Options must be plausible and comparable, with exactly one defensible correct answer for MCQs.
+- Distractors should reflect believable professional mistakes, not technical trivia.
+- The explanation must justify the correct response using the situation and role context.
+- Stay within the requested section, difficulty, and question type.
+- Return only the requested JSON.
+""".strip()
+
+
+def _role_appropriate_authoring_system_prompt(skill_category: str) -> str:
+    """Select technical or non-technical authoring policy without mixing conflicting rules."""
+    if str(skill_category or "").strip().lower() == "non_technical":
+        return _NON_TECHNICAL_QUESTION_AUTHORING_SYSTEM_PROMPT
+    return QUESTION_AUTHORING_SYSTEM_PROMPT
+
 def _validate_generated_question(
     question: GeneratedQuestion,
     allowed_skills: dict[str, QuestionGenerationRequestContext],
@@ -1613,6 +1761,141 @@ def _mcq_quality_errors(question: GeneratedQuestion) -> list[str]:
     return errors
 
 
+_SALES_GIVEAWAY_DISTRACTOR_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        "aggressive or coercive follow-up",
+        r"\b(?:contact|call|email)\b.{0,70}\bevery single day\b|\bevery single day\b.{0,70}\b(?:call|email|contact)\b|\buntil (?:the )?(?:prospect|client|customer) explicitly (?:tell|asks?) you to stop\b",
+    ),
+    (
+        "interrupting or dominating the customer",
+        r"\b(?:interrupt|cut off) (?:the )?(?:client|customer|prospect)\b|\b(?:dominate|control) the (?:conversation|dialogue)\b|\bprevent the (?:client|customer|prospect) from raising\b",
+    ),
+    (
+        "coercive or impulsive selling",
+        r"\bpressure (?:the )?(?:prospect|client|customer)\b.{0,100}\bimpulsive\b|\bforce (?:the )?(?:prospect|client|customer)\b.{0,60}\bdecision\b|\bdemand a direct explanation\b",
+    ),
+    (
+        "unfounded assumptions about customer interest",
+        r"\bassume (?:they|the prospect|the client|the customer) (?:have|has) zero interest\b|\bclose (?:their|the) lead file\b.{0,70}\bzero interest\b",
+    ),
+    (
+        "unverified promises or dismissing customer concerns",
+        r"\bpromise (?:an? )?unverified (?:benefit|feature|capability|result)\b|\b(?:ignore|dismiss) (?:the )?(?:prospect|client|customer)(?:'s)? concern\b",
+    ),
+    (
+        "irrelevant competitive surveillance",
+        r"\bforward (?:their )?contact information\b.{0,100}\bdemand\b|\bcheck if (?:the )?prospect has forwarded (?:your )?(?:pricing|price) details to (?:rival|competitor)\b",
+    ),
+    (
+        "unrealistically absolute behaviour",
+        r"\bevery single line\b.{0,60}\b(?:terms|conditions|document)\b|\b(?:read|review) every single line\b",
+    ),
+)
+
+_SALES_COMMUNICATION_STEM_PATTERN = re.compile(
+    r"\b(?:active listening|paraphras(?:e|ing)|summari[sz](?:e|ing)|open[- ]ended questions?|client discovery|customer discovery)\b",
+    flags=re.IGNORECASE,
+)
+_SALES_OFF_TOPIC_COMMUNICATION_OPTION_PATTERN = re.compile(
+    r"\b(?:technical knowledge|technical specifications|custom product build|compiler|algorithm|sql query|memory leak)\b",
+    flags=re.IGNORECASE,
+)
+_CANDIDATE_FACING_RUBRIC_LEAKAGE_PATTERNS: tuple[str, ...] = (
+    r"\bprovide (?:the )?rubric guidance\b",
+    r"\brubric guidance\b",
+    r"\bscoring rubric\b",
+    r"\bprovide (?:the )?evaluation criteria\b",
+    r"\bwhat a strong candidate response should include\b",
+    r"\binclude the expected key points\b",
+    r"\bexplain how (?:this|the) answer should be evaluated\b",
+    r"\bdescribe the scoring criteria\b",
+)
+_REPEATED_NON_TECHNICAL_STEM_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("primary-purpose", r"\bwhat is the (?:primary|main) purpose\b"),
+    ("primary-criterion", r"\bwhat is the primary (?:criterion|criteria)\b"),
+    ("most-effective-approach", r"\bwhat is the most effective approach\b"),
+    ("best-way", r"\bwhat is the best way to\b"),
+)
+
+
+def _non_technical_question_quality_errors(
+    question: GeneratedQuestion,
+    *,
+    job_title: str | None = None,
+    excluded_question_texts: list[str] | None = None,
+) -> list[str]:
+    """Reject obvious non-technical authoring defects without another model call.
+
+    These checks are intentionally conservative: they target explicit evaluator-only
+    instructions, cartoonishly bad sales distractors, off-topic options for sales-
+    communication questions, and repeated generic stem templates. They do not try to
+    decide semantic correctness from keyword overlap alone.
+    """
+    question_text = " ".join(str(question.question_text or "").strip().casefold().split())
+    if not question_text:
+        return ["Generated question has an empty candidate-facing stem."]
+
+    errors: list[str] = []
+    question_type = str(question.question_type or "").strip().upper()
+
+    if question_type == "FREE_TEXT":
+        if any(re.search(pattern, question_text, flags=re.IGNORECASE)
+               for pattern in _CANDIDATE_FACING_RUBRIC_LEAKAGE_PATTERNS):
+            errors.append(
+                "Candidate-facing question contains evaluator-only rubric or scoring instructions; keep those in the separate explanation field."
+            )
+        return errors
+
+    if question_type != "MCQ" or len(question.options or []) != 4:
+        return errors
+
+    normalized_title = " ".join(str(job_title or "").strip().casefold().split())
+    is_sales_role = bool(re.search(r"\b(?:sales|business development)\b", normalized_title))
+    correct_answer = " ".join(str(question.correct_answer or "").strip().casefold().split())
+    option_texts = [" ".join(str(option or "").strip().casefold().split()) for option in question.options]
+    correct_index = next(
+        (index for index, option in enumerate(option_texts) if option == correct_answer),
+        None,
+    )
+    incorrect_options = [
+        option for index, option in enumerate(option_texts)
+        if correct_index is None or index != correct_index
+    ]
+
+    if is_sales_role:
+        for label, pattern in _SALES_GIVEAWAY_DISTRACTOR_PATTERNS:
+            if any(re.search(pattern, option, flags=re.IGNORECASE) for option in incorrect_options):
+                errors.append(
+                    f"MCQ contains an implausibly extreme or unprofessional distractor ({label}); rewrite it as a credible alternative for the same sales decision."
+                )
+                break
+
+        if _SALES_COMMUNICATION_STEM_PATTERN.search(question_text) and any(
+            _SALES_OFF_TOPIC_COMMUNICATION_OPTION_PATTERN.search(option)
+            for option in incorrect_options
+        ):
+            errors.append(
+                "MCQ contains an off-topic technical distractor for a sales-communication question; all options must address the same professional concept."
+            )
+
+    # Avoid repeating stock stem templates across questions already generated or
+    # selected for this same slot. This checks wording pattern only, not the target.
+    for label, pattern in _REPEATED_NON_TECHNICAL_STEM_PATTERNS:
+        if not re.search(pattern, question_text, flags=re.IGNORECASE):
+            continue
+        for previous in excluded_question_texts or []:
+            previous_text = " ".join(str(previous or "").strip().casefold().split())
+            if previous_text and re.search(pattern, previous_text, flags=re.IGNORECASE):
+                errors.append(
+                    f"Question repeats the generic '{label}' stem pattern from recent assessment content; vary the question structure while testing a distinct target."
+                )
+                break
+        if errors:
+            break
+
+    return errors
+
+
 _MCQ_CONCEPT_GROUPS: dict[str, set[str]] = {
     "docker_build_context": {
         "build context", "context", "dockerignore", ".dockerignore", "node_modules",
@@ -1786,13 +2069,15 @@ def _generation_plan_quality_errors(
     fail. Hard slot constraints, requested pattern, efficiency focus, and MCQ
     option quality remain enforced elsewhere.
     """
-    if plan is None:
-        return []
-
     errors: list[str] = []
+    if question.question_type.strip().upper() == "MCQ":
+        errors.extend(_mcq_quality_errors(question))
+
+    if plan is None:
+        return errors
+
     question_text = " ".join(str(question.question_text or "").strip().casefold().split())
 
-    errors.extend(_mcq_quality_errors(question))
     errors.extend(_mcq_answer_consistency_errors(question, plan))
     errors.extend(_practical_scenario_quality_errors(question, plan))
 
@@ -2230,6 +2515,53 @@ def _infer_generation_focus_from_prompt(manager_prompt: str | None) -> str:
     return "auto"
 
 
+def _matches_non_technical_generation_focus(
+    question: GeneratedQuestion,
+    generation_focus: str,
+) -> bool:
+    """Validate professional question patterns without coding-oriented assumptions."""
+    focus = str(generation_focus or "auto").strip().lower()
+    stem = " ".join(str(question.question_text or "").strip().casefold().split())
+    combined = " ".join([stem, *(question.options or [])]).casefold()
+
+    if not stem:
+        return False
+    if focus == "auto":
+        return True
+    if focus == "concept":
+        # Role-aware relevance is validated separately; don't use the technical
+        # concept matcher, which incorrectly treats words such as "customer" as narrative.
+        return count_words(stem) <= 60 and stem.endswith("?")
+    if focus == "comparison":
+        return any(term in stem for term in (
+            "compare", "difference", "distinguish", "versus", " vs ", "which is better",
+        ))
+    if focus == "scenario":
+        role_cues = (
+            "customer", "client", "prospect", "lead", "sales", "target", "colleague",
+            "team", "manager", "order", "complaint", "follow-up", "follow up",
+        )
+        action_cues = (
+            "what should", "which action", "how should", "what would", "best next step",
+            "most appropriate", "what is the best", "how would you",
+        )
+        return any(term in stem for term in role_cues) and any(term in stem for term in action_cues)
+    if focus in {"applied", "design"}:
+        # Domain-specific context is also enforced by the non-technical leakage guard.
+        return stem.endswith("?") and any(
+            term in combined
+            for term in (
+                "customer", "client", "prospect", "lead", "sales", "target", "team",
+                "colleague", "manager", "communication", "follow-up", "follow up",
+                "professional", "workplace", "candidate", "customer need",
+            )
+        )
+    # Technical-only patterns should have been remapped before validation.
+    if focus in {"code", "output", "debugging", "sql"}:
+        return False
+    return True
+
+
 def _matches_generation_focus(
     question: GeneratedQuestion,
     generation_focus: str,
@@ -2431,15 +2763,52 @@ def _hard_pattern_for_slot(section_type: str, difficulty: str) -> str | None:
     return None
 
 
-def _experience_level_guidance(experience_required: str | None) -> str:
-    """Convert a JD experience requirement into question-authoring guidance.
+def _experience_level_guidance(
+    experience_required: str | None,
+    skill_category: str = "technical",
+) -> str:
+    """Convert a JD experience requirement into category-aware authoring guidance.
 
     Experience calibrates sophistication only. It never overrides the slot's
-    skill, section, difficulty, question type, manager guidance, or question plan.
+    skill, section, difficulty, question type, job domain, manager guidance, or plan.
     """
     normalized = " ".join(
         str(experience_required or "").strip().lower().split()
     )
+
+    if str(skill_category or "technical").strip().lower() == "non_technical":
+        if not normalized:
+            level = "unspecified"
+            guidance = (
+                "- Calibrate sophistication from the slot's section and difficulty only.\n"
+                "- Use normal professional judgement without assuming prior sales experience."
+            )
+        elif any(
+            marker in normalized
+            for marker in ("fresher", "freshers", "fresh graduate", "entry level", "entry-level")
+        ) or bool(re.search(r"\b0\s*(?:years?|yrs?)\b", normalized)):
+            level = "early-career / fresher"
+            guidance = (
+                "- Use familiar workplace situations and straightforward professional judgement.\n"
+                "- Assess the selected professional skill in the job's context.\n"
+                "- Do not require specialist knowledge, technical implementation, coding, or algorithms."
+            )
+        else:
+            level = "as specified by the JD"
+            guidance = (
+                "- Match professional judgement and scenario complexity to the experience stated in the JD.\n"
+                "- Do not substitute technical complexity for role-appropriate difficulty."
+            )
+        return f"""
+EXPERIENCE REQUIREMENT — JD
+- Original requirement: {normalized[:100] or "not specified"}
+- Derived experience band: {level}
+
+EXPERIENCE CALIBRATION FOR A NON-TECHNICAL ROLE
+{guidance}
+- Experience controls expected depth only; it does not override job domain, skill, section,
+  difficulty, question type, manager guidance, or the question plan.
+""".strip()
 
     if not normalized:
         return """
@@ -2535,6 +2904,9 @@ def generate_questions_from_skills(
     manager_interpretation: ManagerPromptInterpretation | dict[str, object] | None = None,
     generation_plan: QuestionGenerationPlan | dict[str, object] | None = None,
     experience_required: str | None = None,
+    skill_category: str = "technical",
+    job_title: str | None = None,
+    job_description: str | None = None,
 ) -> list[GeneratedQuestion]:
     """
     Generate structured questions for one semantic section and difficulty.
@@ -2570,6 +2942,13 @@ def generate_questions_from_skills(
     expected_question_type = _expected_question_type_for_section(
         normalized_section_type, question_type
     )
+    normalized_skill_category = (
+        "non_technical"
+        if str(skill_category or "").strip().lower() == "non_technical"
+        else "technical"
+    )
+    normalized_job_title = " ".join(str(job_title or "").strip().split())[:255] or None
+    normalized_job_description = " ".join(str(job_description or "").strip().split())[:3500] or None
 
     normalized_strategy = str(generation_strategy or "balanced").strip().lower()
     if normalized_strategy not in {"pattern", "balanced", "current"}:
@@ -2579,7 +2958,10 @@ def generate_questions_from_skills(
     if normalized_focus not in {"auto", "concept", "scenario", "comparison", "code", "output", "debugging", "sql", "design", "applied"}:
         raise ValueError("Generation focus must be auto, concept, scenario, comparison, code, output, debugging, sql, design, or applied.")
 
-    experience_guidance = _experience_level_guidance(experience_required)
+    experience_guidance = _experience_level_guidance(
+        experience_required,
+        normalized_skill_category,
+    )
 
     # Slot-level authoring constraints take precedence over manager-selected focus.
     # Conceptual + Easy is always a simple conceptual pattern; manager guidance can
@@ -2648,6 +3030,14 @@ def generate_questions_from_skills(
     # focus, prompt keywords, or planner intent.
     if normalized_section_type == "conceptual" and normalized_difficulty == "easy":
         normalized_focus = "concept"
+
+    # Non-technical job-skill classification is a domain constraint: don't let a
+    # focus keyword such as "debugging" silently turn a sales/HR/operations question
+    # into a programming assessment. Applied reasoning remains available.
+    if normalized_skill_category == "non_technical" and normalized_focus in {
+        "code", "output", "debugging", "sql", "design"
+    }:
+        normalized_focus = "concept" if hard_pattern is not None else "applied"
 
     # A hard slot pattern (currently Easy + Conceptual) takes precedence over
     # generic manager style preferences; do not force code into that slot.
@@ -2721,6 +3111,24 @@ EASY CONCEPTUAL SECTION — AUTHORING STYLE OVERRIDE
         normalized_section_type,
         expected_question_type,
     )
+    if normalized_skill_category == "non_technical":
+        section_guidance = {
+            "conceptual": (
+                "Test foundational concepts, principles, or distinctions that matter to the "
+                "confirmed job role and selected professional skill. Easy conceptual questions "
+                "should be direct and role-relevant, not programming or computer-science trivia."
+            ),
+            "implementation": (
+                "Test practical execution of a responsibility from the confirmed job description. "
+                "Use realistic work situations and professional decisions; do not require code, SQL, "
+                "or software debugging unless the JD explicitly calls for it."
+            ),
+            "free_text": (
+                "Assess a candidate's explanation, professional judgement, customer/workplace "
+                "communication, prioritization, or role-specific problem-solving in an open response. "
+                "Provide explicit, role-relevant rubric guidance."
+            ),
+        }.get(normalized_section_type, section_guidance)
     difficulty_guidance = _difficulty_generation_guidance(
         normalized_difficulty
     )
@@ -2764,8 +3172,8 @@ For every generated question:
 - Do NOT ask the same underlying knowledge point in different words.
 - Do NOT create a near-paraphrase by swapping a few words, command names, or option order.
 - Do NOT preserve the same scenario while changing only values, variable names, or surface wording.
-- Change the tested concept, mechanism, scenario, failure mode, implementation task, API behavior, or design consideration.
-- The replacement must feel like a genuinely different assessment question.
+- Change the tested concept, role-specific decision, workplace situation, customer concern, professional action, or mechanism appropriate to the job domain.
+- The replacement must feel like a genuinely different assessment question in the confirmed role.
 """.strip()
 
     reference_context = ""
@@ -2773,7 +3181,18 @@ For every generated question:
     if reference_question_text:
         cleaned_reference = " ".join(reference_question_text.strip().split())
         if cleaned_reference:
-            reference_context = f"""
+            if normalized_skill_category == "non_technical":
+                reference_context = f"""
+Reference question currently assigned to this slot (style reference only):
+{cleaned_reference}
+
+Use only its response shape and approximate difficulty. Ignore its subject matter if it
+conflicts with the confirmed job title, job description, or professional skill. Create new
+role-relevant content for the same selected skill, section type, difficulty, and response format.
+Do not import technical trivia from an older question.
+""".strip()
+            else:
+                reference_context = f"""
 Reference question currently assigned to this slot:
 {cleaned_reference}
 
@@ -2797,7 +3216,20 @@ same skill, section type, difficulty and requested question type.
 
     if cleaned_patterns:
         pattern_lines = "\n".join(f"- {item}" for item in cleaned_patterns)
-        pattern_context = f"""
+        if normalized_skill_category == "non_technical":
+            pattern_context = f"""
+Pattern/reference examples (style only):
+{pattern_lines}
+
+PATTERN RECOGNITION RULE:
+Use only broad response shape and difficulty as a style reference. Do not preserve code, SQL,
+debugging, algorithm, or other technical content when it conflicts with the confirmed job role.
+Choose new, role-relevant professional content for the selected skill.
+
+The goal is: consistent response format, role-relevant new content.
+""".strip()
+        else:
+            pattern_context = f"""
 Pattern/reference examples:
 {pattern_lines}
 
@@ -2891,6 +3323,89 @@ Prioritize conceptual diversity over superficial wording changes.
     reference_instruction = pattern_context or reference_context or "No reference question was supplied."
     excluded_instruction = excluded_context or "No prior question text was supplied for exclusion."
 
+    if normalized_skill_category == "non_technical":
+        candidate_specific_requirements = """
+- Execute the supplied question plan and assess the confirmed professional skill in the stated job role.
+- For broad skills such as problem-solving, test a real workplace decision in this occupation rather than a generic puzzle.
+- Keep the stem, answer options, and explanation inside the confirmed job domain and selected skill.
+- For Sales Executive, make sales/customer context visible in the question stem, not only in the explanation or options.
+- When the selected skill is problem-solving, focus on a sales problem such as a customer objection, lead qualification, unanswered follow-up, target shortfall, or mismatch with customer needs where supported by the JD.
+- Do not use algorithms, greedy-choice properties, recursion, permutations, memoization, graph traversal, programming syntax, code snippets, SQL, memory leaks, compilers, or technical debugging unless explicitly required by the JD.
+- If manager examples are supplied, adapt them naturally to the role without turning them into a technical analogy.
+- For scenarios, describe a realistic role-specific situation and ask for an appropriate professional action.
+- Do not invent products, customer policies, legal rules, tools, or job duties absent from the JD.
+""".strip()
+        mcq_output_rules = """
+MCQ OUTPUT RULES
+- Exactly four distinct options and exactly one clearly defensible correct answer.
+- All options must address the same professional decision or concept.
+- Distractors must be plausible professional mistakes, not programming or computer-science trivia.
+- Keep options comparable in specificity, length, and grammar; do not make the correct option obvious by style.
+- The explanation must justify the selected answer for the role and situation.
+- correct_answer must be ONE label only: A, B, C, or D.
+
+FREE_TEXT OUTPUT RULES
+- options=[]
+- correct_answer=null
+- explanation contains concise, role-relevant scoring guidance and expected key points.
+""".strip()
+        retry_quality_requirements = """
+For non-technical roles:
+- Keep the stem, options, and explanation inside the confirmed job domain and selected skill.
+- For Sales Executive, make sales/customer context visible in the question stem.
+- Do not mention algorithms, greedy-choice properties, recursion, permutations, memoization, graph traversal, programming syntax, code snippets, SQL, memory leaks, compilers, or technical debugging unless explicitly required by the JD.
+- For scenario questions, describe a realistic sales/workplace situation and ask for an appropriate professional action.
+- Provide four distinct, plausible alternatives for the same professional decision, with one defensible best answer.
+- Set correct_answer to ONE label only: A, B, C, or D. The server resolves the label to option text.
+- For FREE_TEXT use options=[] and correct_answer=null.
+- Create a new role-relevant knowledge target on retries.
+""".strip()
+    else:
+        candidate_specific_requirements = """
+- Execute this candidate's QUESTION PLAN directly; do not substitute a generic skill question.
+- Think problem-first for scenario/applied patterns: identify the constraint, symptom, goal, or trade-off, then write the shortest story that creates that problem.
+- For scenario questions, the story must create the technical decision. Do not add a decorative story around a generic technical question.
+- A problem-story may be an everyday/business situation or a software/operational situation, depending on the skill.
+- Do not force every question into a "company/team/developer" template.
+- If the manager gives an example such as fruits and vegetables, use it as meaningful problem context when relevant: inventory, orders, deliveries, stock, quantities, capacity, or workload.
+- Do not use fruits and vegetables as a decorative word or as a physical analogy for the technical concept.
+- If efficiency is requested, the scenario must contain a real efficiency objective or constraint, and the answer must affect it.
+- For Docker, natural problem contexts include a grocery inventory service, order service, checkout system, delivery service, or another system whose containers have a concrete operational problem.
+- For Docker, a produce story must not be about boxes, packaging, crates, baskets, or shipping as an analogy for Docker.
+- Use LeetCode-style problem framing when appropriate: a simple story, a concrete constraint, and a technical decision that follows naturally from that constraint.
+- Keep easy questions short, concrete, and easy to parse. Make questions interesting through the problem setup, not through unnecessary complexity or filler.
+- Do not invent random actors or backstory unrelated to the planned problem.
+- The final question must remain technically correct, unambiguous, role-relevant, and answerable from the information given.
+""".strip()
+        mcq_output_rules = """
+MCQ OUTPUT RULES
+- exactly four distinct options
+- exactly one correct answer
+- all options address the same technical decision
+- all options are plausible and comparable in specificity, structure and length
+- no "None of the above"
+- no obvious opposite pairs used as fake distractors
+- no unrelated technical changes
+- do not make the correct option the longest, most detailed, or grammatically unique option
+- solve the technical problem before assigning correct_answer
+- verify the selected answer directly resolves the symptom/constraint in the stem
+- verify the explanation supports that exact selected option
+- correct_answer must be ONE label only: A, B, C, or D
+
+FREE_TEXT OUTPUT RULES
+- options=[]
+- correct_answer=null
+- explanation contains concise evaluation guidance / expected key points
+""".strip()
+        retry_quality_requirements = """
+If the plan example is "fruits and vegetables", put "fruit" or "vegetable" naturally in the QUESTION STEM, preferably in the first sentence.
+For scenario questions, make the example the REAL SOFTWARE/PRODUCT CONTEXT. Example: "A fruit-and-vegetable shop's inventory API runs in a Docker container and CPU reaches 95% during the evening order rush." Do NOT use the example as a physical analogy such as packaging produce or reducing shipping boxes. Include an operational symptom/constraint and a concrete technical decision.
+For MCQ use exactly four distinct options. All four options must be plausible alternatives for the SAME technical decision and must be different techniques/approaches, not opposites. Do not make the correct option longer, more specific, or grammatically unique. Before returning JSON, solve the problem independently and verify that the selected answer actually resolves the stated symptom/constraint; the explanation must support the same answer. Do not choose an answer merely because it is generally useful. For Docker image-size optimization, options should be comparable image-building or image-content techniques (for example, smaller base image, multi-stage build, removing unnecessary packages/cache, or excluding files with .dockerignore), not "larger base image" or an unrelated runtime change.
+Set correct_answer to ONE label only: A, B, C, or D. The server resolves the label to the option text.
+For FREE_TEXT use options=[] and correct_answer=null.
+Create a different knowledge target from previous attempts.
+""".strip()
+
     # Keep this prompt compact for reliable API generation. The manager's free-form
     # instruction is first-class input, while hard product constraints stay explicit.
     generation_plan_repair = ""
@@ -2902,12 +3417,22 @@ Prioritize conceptual diversity over superficial wording changes.
             and normalized_focus == "concept"
             and plan.pattern == "concept"
         ):
+            if normalized_skill_category == "non_technical":
+                target_execution_instruction = (
+                    "- Use the planned role-specific professional target directly. Keep it a direct, "
+                    "foundational concept check; do not import a computer-science topic."
+                )
+            else:
+                target_execution_instruction = (
+                    "- Use the technical target directly; do NOT convert it into a story, incident, "
+                    "character, workload, or operational scenario."
+                )
             generation_plan_repair = f"""
 NON-NEGOTIABLE PLAN EXECUTION FOR THIS CANDIDATE:
 - Pattern: concept. The question stem MUST be a short, direct conceptual check with minimal context.
 - Problem: {plan.problem_target}.
 - Knowledge target: {plan.knowledge_target}.
-- Use the technical target directly; do NOT convert it into a story, incident, character, workload, or operational scenario.
+{target_execution_instruction}
 - Do not add decorative scenario/context or an invented business setting.
 - Cognitive operation: {plan.cognitive_operation}.
 - Efficiency decision: {plan.efficiency_focus or "none specified"}.
@@ -2929,13 +3454,20 @@ NON-NEGOTIABLE PLAN EXECUTION FOR THIS CANDIDATE:
                 "do not force it into unrelated technical details and do not invent a different example. "
                 'For "fruits and vegetables", prefer a natural context such as fruit and vegetable orders.\n'
             )
-        generation_plan_repair += (
-            "- Do not replace the planned scenario with a generic technical question.\n"
-            "- Do not invent a random actor or background that is unrelated to the planned problem.\n"
-        )
+        if normalized_skill_category == "non_technical":
+            generation_plan_repair += (
+                "- Do not replace the planned role-specific target with a generic computer-science "
+                "or technical question.\n"
+                "- Keep the assessment grounded in the confirmed job role and JD.\n"
+            )
+        else:
+            generation_plan_repair += (
+                "- Do not replace the planned scenario with a generic technical question.\n"
+                "- Do not invent a random actor or background that is unrelated to the planned problem.\n"
+            )
 
     base_prompt = f"""
-{QUESTION_AUTHORING_SYSTEM_PROMPT}
+{_role_appropriate_authoring_system_prompt(normalized_skill_category)}
 
 SECTION REQUIREMENTS
 {section_guidance}
@@ -2953,6 +3485,13 @@ HARD CONSTRAINTS — NEVER OVERRIDE
 - Section: {normalized_section_type}
 - Difficulty: {normalized_difficulty}
 - Question type: {expected_question_type}
+
+{_role_domain_generation_guidance(
+    skill_category=normalized_skill_category,
+    skill_name=normalized_skills[0].skill_name,
+    job_title=normalized_job_title,
+    job_description=normalized_job_description,
+)}
 
 {experience_guidance}
 
@@ -2987,41 +3526,8 @@ VARIATION
 {variation_context or "Use a different subtopic or reasoning task for each candidate."}
 
 CANDIDATE-SPECIFIC REQUIREMENTS
-- Execute this candidate's QUESTION PLAN directly; do not substitute a generic skill question.
-{easy_conceptual_guardrail}
-- Think problem-first for scenario/applied patterns: identify the constraint, symptom, goal, or trade-off, then write the shortest story that creates that problem.
-- For scenario questions, the story must create the technical decision. Do not add a decorative story around a generic technical question.
-- A problem-story may be an everyday/business situation or a software/operational situation, depending on the skill.
-- Do not force every question into a "company/team/developer" template.
-- If the manager gives an example such as fruits and vegetables, use it as meaningful problem context when relevant: inventory, orders, deliveries, stock, quantities, capacity, or workload.
-- Do not use fruits and vegetables as a decorative word or as a physical analogy for the technical concept.
-- If efficiency is requested, the scenario must contain a real efficiency objective or constraint, and the answer must affect it.
-- For Docker, natural problem contexts include a grocery inventory service, order service, checkout system, delivery service, or another system whose containers have a concrete operational problem.
-- For Docker, a produce story must not be about boxes, packaging, crates, baskets, or shipping as an analogy for Docker.
-- Use LeetCode-style problem framing when appropriate: a simple story, a concrete constraint, and a technical decision that follows naturally from that constraint.
-- Keep easy questions short, concrete, and easy to parse.
-- Make questions interesting through the problem setup, not through unnecessary complexity or filler.
-- Do not invent random actors or backstory unrelated to the planned problem.
-- The final question must remain technically correct, unambiguous, role-relevant, and answerable from the information given.
-
-MCQ OUTPUT RULES
-- exactly four distinct options
-- exactly one correct answer
-- all options address the same technical decision
-- all options are plausible and comparable in specificity, structure and length
-- no "None of the above"
-- no obvious opposite pairs used as fake distractors
-- no unrelated technical changes
-- do not make the correct option the longest, most detailed, or grammatically unique option
-- solve the technical problem before assigning correct_answer
-- verify the selected answer directly resolves the symptom/constraint in the stem
-- verify the explanation supports that exact selected option
-- correct_answer must be ONE label only: A, B, C, or D
-
-FREE_TEXT OUTPUT RULES
-- options=[]
-- correct_answer=null
-- explanation contains concise evaluation guidance / expected key points
+{candidate_specific_requirements}
+{mcq_output_rules}
 
 OUTPUT — RETURN ONLY VALID JSON, NO MARKDOWN, NO COMMENTARY:
 {{
@@ -3048,7 +3554,15 @@ For FREE_TEXT use options=[] and correct_answer=null. Do not include any fields 
 RETRY THIS AUTHORING REQUEST.
 The previous response failed validation: {last_error}
 
+{_role_appropriate_authoring_system_prompt(normalized_skill_category)}
+
 Hard constraints: skill={normalized_skills[0].skill_name}; section={normalized_section_type}; difficulty={normalized_difficulty}; question_type={expected_question_type}.
+{_role_domain_generation_guidance(
+    skill_category=normalized_skill_category,
+    skill_name=normalized_skills[0].skill_name,
+    job_title=normalized_job_title,
+    job_description=normalized_job_description,
+)}
 {experience_guidance}
 Manager request: {manager_instruction}
 Manager interpretation: {manager_guidance_context or "Follow the manager request directly."}
@@ -3061,12 +3575,7 @@ Code/display requirements:
 For Easy Conceptual questions, do not add a scenario merely to avoid a direct question; keep the stem short and foundational.
 Do not fall back to a generic definition/purpose question when the manager explicitly requested scenario, troubleshooting, comparison or applied reasoning.
 The repaired question MUST visibly execute the supplied plan.
-If the plan example is "fruits and vegetables", put "fruit" or "vegetable" naturally in the QUESTION STEM, preferably in the first sentence.
-For scenario questions, make the example the REAL SOFTWARE/PRODUCT CONTEXT. Example: "A fruit-and-vegetable shop's inventory API runs in a Docker container and CPU reaches 95% during the evening order rush." Do NOT use the example as a physical analogy such as packaging produce or reducing shipping boxes. Include an operational symptom/constraint and a concrete technical decision.
-For MCQ use exactly four distinct options. All four options must be plausible alternatives for the SAME technical decision and must be different techniques/approaches, not opposites. Do not make the correct option longer, more specific, or grammatically unique. Before returning JSON, solve the problem independently and verify that the selected answer actually resolves the stated symptom/constraint; the explanation must support the same answer. Do not choose an answer merely because it is generally useful. For Docker image-size optimization, options should be comparable image-building or image-content techniques (for example, smaller base image, multi-stage build, removing unnecessary packages/cache, or excluding files with .dockerignore), not "larger base image" or an unrelated runtime change.
-Set correct_answer to ONE label only: A, B, C, or D. The server resolves that label to the option text.
-For FREE_TEXT use options=[] and correct_answer=null.
-Create a different knowledge target from previous attempts.
+{retry_quality_requirements}
 """.strip()
 
         try:
@@ -3222,6 +3731,33 @@ Create a different knowledge target from previous attempts.
                 candidate_text = _normalize_question_text_for_storage(
                     generated_question.question_text
                 )
+                if normalized_skill_category == "non_technical":
+                    stem_leakage = find_non_technical_domain_leakage(
+                        candidate_text,
+                        job_title=normalized_job_title,
+                        job_description=normalized_job_description,
+                    )
+                    candidate_material = "\n".join(
+                        [
+                            candidate_text,
+                            *generated_question.options,
+                            generated_question.correct_answer or "",
+                            generated_question.explanation or "",
+                        ]
+                    )
+                    option_leakage = find_non_technical_domain_leakage(
+                        candidate_material,
+                        job_title=normalized_job_title,
+                        job_description=normalized_job_description,
+                    )
+                    leakage = list(dict.fromkeys(stem_leakage + option_leakage))
+                    if leakage:
+                        raise LLMResponseError(
+                            "Generated question is outside the confirmed non-technical role domain; "
+                            "unrelated technical content detected: "
+                            + ", ".join(leakage)
+                            + "."
+                        )
                 if requires_code_snippet and not _has_fenced_code_snippet(candidate_text):
                     raise LLMResponseError(
                         "Generated coding question did not include a non-empty Markdown fenced code block."
@@ -3235,7 +3771,19 @@ Create a different knowledge target from previous attempts.
                         "Generated output-prediction question did not explicitly ask about the code's output or result."
                     )
 
-                if not _matches_generation_focus(generated_question, normalized_focus, normalized_section_type):
+                focus_matches = (
+                    _matches_non_technical_generation_focus(
+                        generated_question,
+                        normalized_focus,
+                    )
+                    if normalized_skill_category == "non_technical"
+                    else _matches_generation_focus(
+                        generated_question,
+                        normalized_focus,
+                        normalized_section_type,
+                    )
+                )
+                if not focus_matches:
                     raise LLMResponseError(
                         f"Generated question did not follow the requested {normalized_focus} question focus."
                     )
@@ -3295,8 +3843,16 @@ Create a different knowledge target from previous attempts.
                     question_for_quality,
                     normalized_generation_plan,
                 )
+                if normalized_skill_category == "non_technical":
+                    plan_quality_errors.extend(
+                        _non_technical_question_quality_errors(
+                            question_for_quality,
+                            job_title=normalized_job_title,
+                            excluded_question_texts=excluded_question_texts,
+                        )
+                    )
                 if plan_quality_errors:
-                    raise LLMResponseError("; ".join(plan_quality_errors))
+                    raise LLMResponseError("; ".join(dict.fromkeys(plan_quality_errors)))
 
                 if _question_targets_are_too_similar(
                     generated_question.question_text,

@@ -1,3 +1,4 @@
+
 from datetime import timedelta, timezone
 
 import hashlib
@@ -514,6 +515,11 @@ def _profile_response(user: User) -> dict:
         "user_id": user.id,
         "username": user.username,
         "full_name": user.full_name,
+        "phone_number": user.phone_number,
+        "job_title": user.job_title,
+        "department": user.department,
+        "location": user.location,
+        "bio": user.bio,
         "email": user.email,
         "role": user.role,
         "has_profile_photo": _profile_photo_path(user.id).is_file(),
@@ -555,7 +561,7 @@ def update_my_profile(
     if not changes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provide a name or username to update.",
+            detail="Provide at least one profile field to update.",
         )
 
     if "full_name" in changes:
@@ -584,6 +590,30 @@ def update_my_profile(
             )
         user.username = clean_username
 
+    optional_text_limits = {
+        "phone_number": 30,
+        "job_title": 100,
+        "department": 100,
+        "location": 120,
+        "bio": 500,
+    }
+    for field_name, max_length in optional_text_limits.items():
+        if field_name not in changes:
+            continue
+
+        # Empty form values clear an optional field. Omitted fields are not
+        # present in `changes`, so they retain their existing stored values.
+        clean_value = changes[field_name].strip()
+        if len(clean_value) > max_length:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"{field_name.replace('_', ' ').capitalize()} "
+                    f"must be {max_length} characters or fewer."
+                ),
+            )
+        setattr(user, field_name, clean_value or None)
+
     # Email and role are deliberately not writable through this endpoint.
     try:
         db.commit()
@@ -596,7 +626,6 @@ def update_my_profile(
         ) from exc
 
     return _profile_response(user)
-
 
 
 @router.get("/me/avatar")
