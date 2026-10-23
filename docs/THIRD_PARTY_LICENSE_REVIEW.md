@@ -35,7 +35,7 @@ The rest of the package inventory reports MIT, Apache-2.0, BSD-3-Clause, or ISC 
 
 The backend requirements files list **60 entries** in `backend/requirements.txt` and repeat `rq` and `redis` in `backend/requirements-queue.txt`. This is a pinned dependency list, not yet a verified licence inventory.
 
-The next step is to generate a report from the actual installed Python environment, then compare it with the requirements and the production environment. The [licensing audit runbook](LICENSE_AUDIT_RUNBOOK.md) contains PowerShell commands for `pip-licenses`, including an installed-package table and a JSON report. The report still needs human review of exact licence texts, notices, and any non-permissive or custom terms.
+The next step is to capture the actual installed Python environment and copy the original licence/notice files from it. The collector at `scripts/collect_third_party_license_files.py` copies matching files from installed npm and Python distributions into a generated inventory. By default it includes the complete active Python environment so indirect packages and packages installed separately from the requirements file (including explicitly installed container packages) are not silently skipped. The [licensing audit runbook](LICENSE_AUDIT_RUNBOOK.md) also includes `pip-licenses` commands for a second metadata report. The copied files and reports still need human review of exact terms, required notices, and non-permissive or custom conditions.
 
 ## 3. AI model and hosted-service terms — separate from source-code licensing
 
@@ -73,4 +73,4 @@ Review separately before a release:
 
 ## Outcome
 
-The frontend lockfile has been inventoried at the metadata level. **This is not yet a complete third-party compliance clearance.** The installed JavaScript and Python reports have not yet been generated and reviewed; the final container SBOM is also pending. Exact model artefacts, bundled font/icon notices, other project assets, and deployment/distribution paths still require review. No root project licence should be added until the rights holder and release authority are confirmed and the chosen licence is approved.
+The frontend lockfile has been inventoried at the metadata level. The collector script is now in the repository, but it has not been run against the user's actual `node_modules` and active `.venv`; the original dependency licence/notice files have therefore not yet been populated in GitHub. **This is not yet a complete third-party compliance clearance.** The installed JavaScript and Python reports and final container SBOM are still pending. Exact model artefacts, bundled font/icon notices, other project assets, and deployment/distribution paths still require review. No root project licence should be added until the rights holder and release authority are confirmed and the chosen licence is approved.
