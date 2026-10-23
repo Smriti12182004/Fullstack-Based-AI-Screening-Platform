@@ -91,7 +91,8 @@ def package_legal_files(package_root: Path) -> list[Path]:
 
 
 def copy_original(
-    source: Path, ecosystem_dir: Path, package_label: str, relative_path: str
+    source: Path, ecosystem_dir: Path, package_label: str, relative_path: str,
+    source_label: str,
 ) -> dict[str, str] | None:
     text = read_original_text(source)
     if text is None:
@@ -106,7 +107,7 @@ def copy_original(
         return None
     return {
         "copied_path": destination.as_posix(),
-        "original_path": str(source),
+        "original_path": source_label,
         "filename": source.name,
     }
 
@@ -149,7 +150,7 @@ def collect_npm(frontend: Path, output: Path) -> list[dict[str, Any]]:
                 relative = source.relative_to(root).as_posix()
             except ValueError:
                 relative = source.name
-            item = copy_original(source, output / "npm", label, relative)
+            item = copy_original(source, output / "npm", label, relative, f"{install_path}/{relative}")
             if item:
                 copied.append(item)
         records.append({
@@ -217,7 +218,7 @@ def collect_python(
                     continue
                 safe_parts = [part for part in rel.parts if part not in {"", ".", "..", "/", "\\"}]
                 relative = Path(*safe_parts).as_posix() if safe_parts else source.name
-                item = copy_original(source, output / "python", label, relative)
+                item = copy_original(source, output / "python", label, relative, f"{name}=={version}/{rel.as_posix()}")
                 if item:
                     copied.append(item)
             except (OSError, TypeError, ValueError):
