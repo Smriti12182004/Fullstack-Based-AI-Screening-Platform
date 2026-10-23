@@ -106,7 +106,7 @@ def copy_original(
     except OSError:
         return None
     return {
-        "copied_path": destination.as_posix(),
+        "copied_path": destination.relative_to(ecosystem_dir.parent).as_posix(),
         "original_path": source_label,
         "filename": source.name,
     }
