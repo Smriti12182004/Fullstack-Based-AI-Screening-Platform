@@ -136,4 +136,4 @@ docs/
 
 ## Licensing
 
-The project licence has not been selected yet. Do not assume the repository is licensed for reuse merely because it is public. Start with the [software licensing review](docs/LICENSING.md) for ownership, permission and licence selection, then see the [third-party licence review](docs/THIRD_PARTY_LICENSE_REVIEW.md) for the current dependency and model inventory and outstanding checks.
+The project licence has not been selected yet. Do not assume the repository is licensed for reuse merely because it is public. Start with the [software licensing review](docs/LICENSING.md) for ownership, permission and licence selection. The [third-party licence review](docs/THIRD_PARTY_LICENSE_REVIEW.md) records the known inventory, and the [licensing audit runbook](docs/LICENSE_AUDIT_RUNBOOK.md) gives Windows PowerShell commands to audit installed dependencies and the backend container.
