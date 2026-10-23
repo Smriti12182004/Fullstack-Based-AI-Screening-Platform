@@ -50,15 +50,15 @@ The backend configuration currently names these defaults:
 | --- | --- |
 | `gemini-3.8-flash` | This is a hosted model/API, not a package licence for Evalyn's source. Review the applicable Gemini API or Google Cloud terms for the actual integration and deployment region. Do not include API credentials in the repository. |
 | `llama3.2:3b` | This refers to a Llama 3.2 family model served through Ollama. Meta's Llama 3.2 Community License is a separate set of model terms, not an MIT/Apache software licence. Confirm the exact model tag/digest, its source and quantization, the applicable terms, and whether any weights are distributed with Evalyn. If distributing Llama materials or a product containing them, check the agreement's notices and attribution conditions. |
-| `all-MiniLM-L6-v2` | The code names this sentence-transformers embedding model. Its model card declares Apache-2.0, but verify the exact model revision and retain applicable model and upstream notices if redistributing the weights. |
+| Embedding model — exact identifier not yet verified | `backend/requirements.txt` includes `sentence-transformers` and `faiss-cpu`, but the runtime model identifier was not confirmed from the configuration and service files reviewed so far. Locate the exact model name, revision/digest, source, model card and licence before release; do not infer the model licence from the Python package licence. |
 
 Authoritative starting points, checked on the review date:
 
 - [Gemini API Additional Terms of Service](https://ai.google.dev/gemini-api/terms) — Google states that Gemini API use is subject to the Google API Terms and the additional Gemini API terms.
 - [Meta Llama 3.2 Community License text](https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/blob/main/LICENSE.txt) and [Meta's Llama model downloads page](https://ai.meta.com/resources/models-and-libraries/llama-downloads/).
-- [Sentence Transformers all-MiniLM-L6-v2 model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), which declares Apache-2.0.
+- The [Sentence Transformers model catalogue](https://huggingface.co/sentence-transformers) is a starting point only after the exact identifier loaded by the application has been established.
 
-These links are review starting points, not a complete verification of the exact files or tags deployed in every environment. Terms can differ between hosted APIs, downloadable weights, quantized variants, and redistribution.
+These links are review starting points, not a complete verification of the exact files or tags deployed in every environment. The configuration reviewed names the Llama and Gemini defaults, but the exact embedding model remains unconfirmed. Terms can differ between hosted APIs, downloadable weights, quantized variants, and redistribution.
 
 ## 4. Other material and delivery checks — pending
 
