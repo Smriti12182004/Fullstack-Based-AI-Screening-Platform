@@ -185,7 +185,7 @@ def names_from_requirements(backend: Path) -> set[str]:
 
 
 def collect_python(
-    backend: Path, output: Path, include_all: bool
+    backend: Path, output: Path, requirements_only: bool
 ) -> tuple[list[dict[str, Any]], list[str]]:
     expected = names_from_requirements(backend)
     installed: set[str] = set()
@@ -198,7 +198,7 @@ def collect_python(
         except Exception:
             continue
         normalized = norm_name(name)
-        if not include_all and expected and normalized not in expected:
+        if requirements_only and expected and normalized not in expected:
             continue
         installed.add(normalized)
         declared = dist.metadata.get("License-Expression") or dist.metadata.get("License") or ""
@@ -230,7 +230,7 @@ def collect_python(
                       "no matching installed LICENSE/NOTICE/COPYING file found",
             "files": copied,
         })
-    return records, sorted(expected - installed) if expected else []
+    return records, sorted(expected - installed) if requirements_only and expected else []
 
 
 def write_reports(
@@ -308,8 +308,8 @@ def main() -> int:
     )
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="repository root")
     parser.add_argument(
-        "--all-python", action="store_true",
-        help="include every distribution visible to the active interpreter, not only backend requirements",
+        "--requirements-only", action="store_true",
+        help="limit the Python inventory to package names listed in backend requirements; by default, include the entire active environment so indirect and separately installed packages are visible",
     )
     args = parser.parse_args()
     root = args.root.resolve()
@@ -328,7 +328,7 @@ def main() -> int:
 
     output.mkdir(parents=True)
     records = collect_npm(root / "frontend", output)
-    python_records, missing_python = collect_python(root / "backend", output, args.all_python)
+    python_records, missing_python = collect_python(root / "backend", output, args.requirements_only)
     records.extend(python_records)
     write_reports(output, records, missing_python)
     copied = sum(len(row.get("files", [])) for row in records)
