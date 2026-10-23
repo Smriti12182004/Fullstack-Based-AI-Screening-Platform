@@ -35,12 +35,7 @@ The rest of the package inventory reports MIT, Apache-2.0, BSD-3-Clause, or ISC 
 
 The backend requirements files list **60 entries** in `backend/requirements.txt` and repeat `rq` and `redis` in `backend/requirements-queue.txt`. This is a pinned dependency list, not yet a verified licence inventory.
 
-Required next steps:
-
-1. Generate a licence report from the project’s resolved Python environment and include transitive dependencies.
-2. Verify licence text and notices for the exact installed versions.
-3. Check packages with non-permissive, source-available, or custom terms, and review any dependencies that are bundled or redistributed.
-4. Add a third-party notices file or software bill of materials (SBOM) after the report has been reviewed.
+The next step is to generate a report from the actual installed Python environment, then compare it with the requirements and the production environment. The [licensing audit runbook](LICENSE_AUDIT_RUNBOOK.md) contains PowerShell commands for `pip-licenses`, including an installed-package table and a JSON report. The report still needs human review of exact licence texts, notices, and any non-permissive or custom terms.
 
 ## 3. AI model and hosted-service terms — separate from source-code licensing
 
@@ -60,7 +55,13 @@ Authoritative starting points, checked on the review date:
 
 These links are review starting points, not a complete verification of the exact files or tags deployed in every environment. The configuration reviewed names the Llama and Gemini defaults, but the exact embedding model remains unconfirmed. Terms can differ between hosted APIs, downloadable weights, quantized variants, and redistribution.
 
-## 4. Other material and delivery checks — pending
+## 4. Container and distribution surface — pending
+
+The checked-in `backend/Dockerfile` starts from `python:3.12-slim`, installs the OS package `libgomp1`, installs the requirements and CPU-only PyTorch, and copies the backend into the image. If the image is distributed, its inventory must include the base image's operating-system packages as well as the Python packages. The source manifests alone do not establish what is in the final image, especially when a base-image tag or resolved dependencies change.
+
+Generate an SBOM against the exact locally built or published image with the Syft command in [the licensing audit runbook](LICENSE_AUDIT_RUNBOOK.md). The image's SBOM and licence notices still need to be inspected; an SBOM by itself is not a legal approval.
+
+## 5. Other material and delivery checks — pending
 
 Review separately before a release:
 
@@ -72,4 +73,4 @@ Review separately before a release:
 
 ## Outcome
 
-The frontend lockfile has been inventoried at the metadata level. **This is not yet a complete third-party compliance clearance.** Python package licences, exact model artefacts, bundled font/icon notices, other project assets, and deployment/distribution paths still require review. No root project licence should be added until the rights holder and release authority are confirmed and the chosen licence is approved.
+The frontend lockfile has been inventoried at the metadata level. **This is not yet a complete third-party compliance clearance.** The installed JavaScript and Python reports have not yet been generated and reviewed; the final container SBOM is also pending. Exact model artefacts, bundled font/icon notices, other project assets, and deployment/distribution paths still require review. No root project licence should be added until the rights holder and release authority are confirmed and the chosen licence is approved.
