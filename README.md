@@ -112,7 +112,7 @@ AI is intended to assist rather than completely replace the review process.
 
 The planned question workflow is:
 
-`Generate → Validate → Human Review → Approve → Store in Question Bank`
+`Generate ? Validate ? Human Review ? Approve ? Store in Question Bank`
 
 Only approved questions are intended to be used in live assessments.
 
@@ -120,7 +120,7 @@ Only approved questions are intended to be used in live assessments.
 
 The application is planned as a full-stack system consisting of:
 
-`Frontend → Backend API → Database / AI Services / Storage`
+`Frontend ? Backend API ? Database / AI Services / Storage`
 
 The backend will coordinate authentication, APIs, assessment logic, question-bank workflows, and evaluation-related processing.
 
@@ -132,3 +132,20 @@ The repository will be organized to separate application components such as:
 frontend/
 backend/
 docs/
+```
+
+## Licensing
+
+The repository does not currently grant a general open-source licence for
+Evalyn's own source code. Public visibility does not grant permission to reuse
+the project code.
+
+- [Licensing overview](licenses/LICENSING.md)
+- [Third-party notices](licenses/THIRD_PARTY_NOTICES.txt)
+- [Llama 3.2 Community License reference](licenses/llama3.2-community-license.txt)
+
+The utility at `scripts/collect_third_party_license_files.py` collects licence
+evidence from the installed frontend and Python environments. Generated
+per-package evidence is stored outside the repository by default. Review its
+results and reconcile them with the actual release before distribution.
+Collection alone is not legal clearance.

@@ -278,3 +278,37 @@ frontend/lint-after-fix.txt
 
 # Local environment-specific configuration
 .env.test
+# Local dependencies and Python environments
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+*.py[cod]
+
+# Build output and test reports
+**/dist/
+**/build/
+coverage/
+htmlcov/
+.coverage
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Local backups and audit bundles
+audit-backups-*/
+**/*.before-*.bak
+**/*.bak
+tokenizers-notice-backup-*/
+licensing-audit-review-bundle-*
+
+# Local logs and databases
+*.log
+*.sqlite
+*.sqlite3
+licensing-audit-review-bundle*.zip
