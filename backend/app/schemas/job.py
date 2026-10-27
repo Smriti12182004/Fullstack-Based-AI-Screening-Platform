@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 
 class JobCreate(BaseModel):
@@ -31,6 +31,32 @@ class JobResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
     )
+
+
+class BulkJobDeleteRequest(BaseModel):
+    """Request for deleting up to 100 recruiter-owned jobs."""
+
+    job_ids: list[PositiveInt] = Field(
+        min_length=1,
+        max_length=100,
+        description="Positive job IDs. Duplicate IDs are ignored.",
+    )
+
+
+class BulkJobDeleteFailure(BaseModel):
+    """A job that could not be removed during a bulk-delete operation."""
+
+    job_id: PositiveInt
+    reason: Literal["not_found", "blocked", "error"]
+    detail: str
+
+
+class BulkJobDeleteResponse(BaseModel):
+    """Per-job results; successes and failures may be returned together."""
+
+    requested_count: int = Field(ge=1)
+    deleted_ids: list[PositiveInt] = Field(default_factory=list)
+    failures: list[BulkJobDeleteFailure] = Field(default_factory=list)
 
 
 class SkillExtractionSchema(BaseModel):

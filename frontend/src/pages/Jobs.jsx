@@ -95,6 +95,11 @@ function Jobs() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  const [selectedJobIds, setSelectedJobIds] = useState([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState("");
+
   const loadJobs = async (showRefreshState = false) => {
     try {
       setError("");
@@ -107,10 +112,15 @@ function Jobs() {
 
       const response = await api.get("/jobs");
 
-      setJobs(
-        Array.isArray(response.data)
-          ? response.data
-          : []
+      const nextJobs = Array.isArray(response.data)
+        ? response.data
+        : [];
+
+      setJobs(nextJobs);
+      setSelectedJobIds((currentIds) =>
+        currentIds.filter((id) =>
+          nextJobs.some((job) => Number(job.id) === Number(id))
+        )
       );
     } catch (err) {
       console.error("Failed to load jobs:", err);
@@ -239,6 +249,36 @@ function Jobs() {
       });
   }, [jobs, search, filter]);
 
+  const visibleSelectedCount = filteredJobs.filter((job) =>
+    selectedJobIds.includes(Number(job.id))
+  ).length;
+
+  const allVisibleJobsSelected =
+    filteredJobs.length > 0 &&
+    visibleSelectedCount === filteredJobs.length;
+
+  const toggleJobSelection = (jobId) => {
+    const normalizedId = Number(jobId);
+
+    setSelectedJobIds((currentIds) =>
+      currentIds.includes(normalizedId)
+        ? currentIds.filter((id) => id !== normalizedId)
+        : [...currentIds, normalizedId]
+    );
+  };
+
+  const toggleVisibleJobSelection = () => {
+    const visibleIds = filteredJobs.map((job) => Number(job.id));
+
+    setSelectedJobIds((currentIds) => {
+      if (visibleIds.every((id) => currentIds.includes(id))) {
+        return currentIds.filter((id) => !visibleIds.includes(id));
+      }
+
+      return [...new Set([...currentIds, ...visibleIds])];
+    });
+  };
+
   const getJobStyle = (index) => {
     return JOB_STYLES[
       index % JOB_STYLES.length
@@ -278,6 +318,9 @@ function Jobs() {
             job.id !== deleteTarget.id
         )
       );
+      setSelectedJobIds((currentIds) =>
+        currentIds.filter((id) => Number(id) !== Number(deleteTarget.id))
+      );
 
       setDeleteTarget(null);
     } catch (err) {
@@ -303,6 +346,98 @@ function Jobs() {
       );
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const cancelBulkDelete = () => {
+    if (bulkDeleting) {
+      return;
+    }
+
+    setBulkDeleteOpen(false);
+    setBulkDeleteError("");
+  };
+
+  const handleBulkDelete = async () => {
+    const jobIds = [...new Set(selectedJobIds.map(Number))];
+
+    if (jobIds.length === 0) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    setBulkDeleteError("");
+
+    try {
+      const response = await api.post("/jobs/bulk-delete", {
+        job_ids: jobIds,
+      });
+
+      const result = response.data || {};
+      const deletedIds = Array.isArray(result.deleted_ids)
+        ? result.deleted_ids.map(Number)
+        : [];
+      const deletedSet = new Set(deletedIds);
+      const failures = Array.isArray(result.failures)
+        ? result.failures
+        : [];
+      const unavailableIds = new Set(
+        failures
+          .filter((failure) => failure.reason === "not_found")
+          .map((failure) => Number(failure.job_id))
+      );
+
+      setJobs((currentJobs) =>
+        currentJobs.filter(
+          (job) =>
+            !deletedSet.has(Number(job.id)) &&
+            !unavailableIds.has(Number(job.id))
+        )
+      );
+      setSelectedJobIds((currentIds) =>
+        currentIds.filter(
+          (id) =>
+            !deletedSet.has(Number(id)) &&
+            !unavailableIds.has(Number(id))
+        )
+      );
+
+      const unresolvedFailures = failures.filter(
+        (failure) => failure.reason !== "not_found"
+      );
+
+      if (unresolvedFailures.length > 0) {
+        const failureLines = unresolvedFailures.map(
+          (failure) =>
+            `Job #${failure.job_id}: ${failure.detail || "Unable to delete this job."}`
+        );
+
+        setBulkDeleteError(
+          `${deletedIds.length} job(s) deleted; ${unresolvedFailures.length} could not be deleted.\n` +
+            failureLines.join("\n")
+        );
+      } else {
+        setBulkDeleteOpen(false);
+        setBulkDeleteError("");
+      }
+    } catch (err) {
+      console.error("Failed to bulk-delete jobs:", err);
+
+      if (
+        err.response?.status === 401 ||
+        err.response?.status === 403
+      ) {
+        logout();
+        navigate("/login", { replace: true });
+        return;
+      }
+
+      setBulkDeleteError(
+        err.response?.data?.detail ||
+          "Unable to delete selected jobs. Check your connection and try again."
+      );
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -594,6 +729,38 @@ function Jobs() {
 
               </div>
 
+              <div className="mt-4 flex flex-col gap-3 border-t border-[#EEF0F3] pt-3 sm:flex-row sm:items-center sm:justify-between">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-[#475467]">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleJobsSelected}
+                    onChange={toggleVisibleJobSelection}
+                    disabled={filteredJobs.length === 0 || bulkDeleting}
+                    aria-label="Select all visible jobs"
+                    className="h-4 w-4 rounded border-[#C9D0DC] accent-[#5658E8]"
+                  />
+                  Select all visible ({filteredJobs.length})
+                </label>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-[#667085]">
+                    {selectedJobIds.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkDeleteError("");
+                      setBulkDeleteOpen(true);
+                    }}
+                    disabled={selectedJobIds.length === 0 || bulkDeleting}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#E6C9CF] bg-[#FFF9FB] px-3.5 text-xs font-semibold text-[#B85C72] transition hover:border-[#DFAEB9] hover:bg-[#FFF4F7] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 size={13} />
+                    Delete selected
+                  </button>
+                </div>
+              </div>
+
             </section>
           )}
 
@@ -753,6 +920,8 @@ function Jobs() {
                     <JobCard
                       key={job.id}
                       job={job}
+                      selected={selectedJobIds.includes(Number(job.id))}
+                      onToggleSelection={() => toggleJobSelection(job.id)}
                       style={style}
                       index={index}
                       formatDate={formatDate}
@@ -789,6 +958,19 @@ function Jobs() {
 
         )}
 
+        {bulkDeleteOpen && (
+          <DeleteSelectedJobsModal
+            jobs={jobs.filter((job) =>
+              selectedJobIds.includes(Number(job.id))
+            )}
+            selectedCount={selectedJobIds.length}
+            deleting={bulkDeleting}
+            error={bulkDeleteError}
+            onCancel={cancelBulkDelete}
+            onConfirm={handleBulkDelete}
+          />
+        )}
+
       </main>
     </RecruiterLayout>
   );
@@ -796,6 +978,8 @@ function Jobs() {
 
 function JobCard({
   job,
+  selected,
+  onToggleSelection,
   style,
   index,
   formatDate,
@@ -804,7 +988,9 @@ function JobCard({
   onDelete,
 }) {
   return (
-    <article className="group relative overflow-hidden rounded-[20px] border border-[#E3E6EB] bg-white shadow-[0_8px_24px_rgba(27,37,58,0.035)] transition duration-300 hover:-translate-y-0.5 hover:border-[#D5D9E3] hover:shadow-[0_14px_32px_rgba(27,37,58,0.06)]">
+    <article
+      className={`group relative overflow-hidden rounded-[20px] border bg-white shadow-[0_8px_24px_rgba(27,37,58,0.035)] transition duration-300 hover:-translate-y-0.5 hover:border-[#D5D9E3] hover:shadow-[0_14px_32px_rgba(27,37,58,0.06)] ${selected ? "border-[#8C8DEB] ring-2 ring-[#5658E8]/10" : "border-[#E3E6EB]"}`}
+    >
 
       <div
         className="pointer-events-none absolute right-3 top-2 transition-all duration-500 group-hover:rotate-3 group-hover:scale-105"
@@ -861,6 +1047,16 @@ function JobCard({
         <div className="flex items-start justify-between gap-4">
 
           <div className="flex min-w-0 items-start gap-3">
+
+            <label className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#D9DEE7] bg-white transition hover:border-[#8C8DEB]">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={onToggleSelection}
+                aria-label={`Select job ${job.title || job.id}`}
+                className="h-4 w-4 cursor-pointer rounded border-[#C9D0DC] accent-[#5658E8]"
+              />
+            </label>
 
             <div
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-105 group-hover:-rotate-3"
@@ -1187,5 +1383,109 @@ function DeleteJobModal({
     </div>
   );
 }
+
+function DeleteSelectedJobsModal({
+  jobs,
+  selectedCount,
+  deleting,
+  error,
+  onCancel,
+  onConfirm,
+}) {
+  const previewJobs = jobs.slice(0, 5);
+  const remainingCount = Math.max(0, jobs.length - previewJobs.length);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#16182D]/45 px-4 py-6 backdrop-blur-[2px]">
+      <div className="max-h-[90vh] w-full max-w-[520px] overflow-y-auto rounded-[22px] border border-[#E2D8DC] bg-white shadow-[0_28px_70px_rgba(21,24,48,0.22)]">
+        <div className="p-6 sm:p-7">
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#F8EAF1] text-[#B85C72]">
+              <Trash2 size={19} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#B85C72]">
+                Bulk delete
+              </p>
+              <h3 className="mt-1.5 text-lg font-semibold tracking-[-0.02em] text-[#202938]">
+                Delete {selectedCount} selected job{selectedCount === 1 ? "" : "s"}?
+              </h3>
+              <p className="mt-2 text-xs leading-5 text-[#667085]">
+                Jobs linked to existing assessment data may be blocked and will remain in your workspace. Other eligible jobs can still be deleted.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={deleting}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#98A2B3] transition hover:bg-[#F4F5F7] hover:text-[#475467] disabled:opacity-50"
+              aria-label="Close bulk-delete dialog"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-[#EEF0F3] bg-[#FAFBFC] p-3">
+            {previewJobs.length > 0 ? (
+              <ul className="space-y-2">
+                {previewJobs.map((job) => (
+                  <li
+                    key={job.id}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2"
+                  >
+                    <span className="min-w-0 break-words text-xs font-semibold text-[#344054]">
+                      {job.title || "Untitled Job"}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-[#98A2B3]">
+                      #{job.id}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[#667085]">
+                No selected jobs remain in the current list.
+              </p>
+            )}
+            {remainingCount > 0 && (
+              <p className="mt-2 px-1 text-[10px] text-[#667085]">
+                And {remainingCount} more job{remainingCount === 1 ? "" : "s"}.
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <div className="mt-4 whitespace-pre-wrap rounded-xl border border-[#E9C8C8] bg-[#FFF8F8] px-3.5 py-3 text-xs leading-5 text-[#A83E3E]">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={deleting}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-[#D7DCE5] bg-white px-4 text-xs font-semibold text-[#475467] transition hover:border-[#BFC6D3] hover:bg-[#FAFBFD] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={deleting || selectedCount === 0}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#B85C72] px-4 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(184,92,114,0.18)] transition hover:-translate-y-0.5 hover:bg-[#A63F59] hover:shadow-[0_12px_24px_rgba(184,92,114,0.24)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting && <RefreshCw size={13} className="animate-spin" />}
+              {deleting
+                ? "Deleting selected jobs..."
+                : `Delete ${selectedCount} job${selectedCount === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 export default Jobs;
