@@ -90,6 +90,32 @@ function getCandidateName(row) {
   );
 }
 
+function isHrScoreOverridden(result) {
+  return (
+    typeof result?.feedback === "string" &&
+    result.feedback.includes("HR score override:")
+  );
+}
+
+function formatResultScore(value, result) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return formatPercent(value);
+  }
+
+  if (isHrScoreOverridden(result)) {
+    const number = Number(value);
+    return Number.isFinite(number)
+      ? `${number.toFixed(2)}%`
+      : formatPercent(value);
+  }
+
+  return formatPercent(value);
+}
+
 function statusClasses(status) {
   if (status === "completed") {
     return "border-[#CFE6DD] bg-[#F2FAF7] text-[#17655E]";
@@ -199,6 +225,32 @@ function AssessmentResults() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const handleScoreOverride = async (row, score, reason) => {
+    if (!row?.attempt_id) {
+      throw new Error("This candidate has no assessment attempt to update.");
+    }
+
+    try {
+      await api.post(
+        `/assessments/${assessmentId}/results/${row.attempt_id}/override`,
+        { score, reason }
+      );
+
+      await loadResults(true);
+    } catch (requestError) {
+      if (requestError.response?.status === 401) {
+        logout();
+        navigate("/login", { replace: true });
+        throw new Error("Your session has expired. Please sign in again.");
+      }
+
+      throw new Error(
+        requestError.response?.data?.detail ||
+        "Unable to save the score override. Please try again."
+      );
     }
   };
 
@@ -312,6 +364,7 @@ function AssessmentResults() {
 
     const csvRows = rows.map((row) => {
       const result = row.result || {};
+      const scoreIsFinal = getStatus(row) === "completed";
 
       return [
         getCandidateName(row),
@@ -320,9 +373,9 @@ function AssessmentResults() {
         row.attempt_id,
         row.submitted_at,
         STATUS_LABELS[getStatus(row)] || "Not graded",
-        result.score,
-        result.earned_points,
-        result.max_points,
+        scoreIsFinal ? result.score : "",
+        scoreIsFinal ? result.earned_points : "",
+        scoreIsFinal ? result.max_points : "",
         renderBreakdown(result.skill_scores, "skill_name"),
         renderBreakdown(result.section_scores, "section_name"),
         Array.isArray(result.question_scores)
@@ -633,8 +686,14 @@ function AssessmentResults() {
                         </div>
 
                         <span className="shrink-0 text-sm font-bold text-[#25264A]">
-                          {formatPercent(result.score)}
+                          {formatResultScore(result.score, result)}
                         </span>
+
+                        {isHrScoreOverridden(result) && (
+                          <span className="rounded-full border border-[#D8DBF7] bg-[#F7F7FF] px-2.5 py-1 text-[9px] font-bold text-[#5658E8]">
+                            HR adjusted
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -674,7 +733,7 @@ function AssessmentResults() {
 
             <div className="min-w-0 space-y-6">
               {selectedRow ? (
-                <CandidateResultDetail row={selectedRow} />
+                <CandidateResultDetail row={selectedRow} assessmentId={assessmentId} onOverride={handleScoreOverride} />
               ) : (
                 <div className="rounded-[22px] border border-dashed border-[#CDD3DE] bg-white p-10 text-center text-sm text-[#667085]">
                   Select a candidate to inspect the detailed results.
@@ -704,9 +763,32 @@ function AssessmentResults() {
   );
 }
 
-function CandidateResultDetail({ row }) {
+function CandidateResultDetail({ row, assessmentId, onOverride }) {
   const result = row.result || null;
   const status = getStatus(row);
+  const [overrideScore, setOverrideScore] = useState(
+    result?.score === null || result?.score === undefined
+      ? ""
+      : String(result.score)
+  );
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [overrideError, setOverrideError] = useState("");
+  const [overrideSuccess, setOverrideSuccess] = useState("");
+
+  useEffect(() => {
+    setOverrideScore(
+      result?.score === null || result?.score === undefined
+        ? ""
+        : String(result.score)
+    );
+  }, [row.attempt_id, result?.score]);
+
+  useEffect(() => {
+    setOverrideReason("");
+    setOverrideError("");
+    setOverrideSuccess("");
+  }, [row.attempt_id]);
 
   const skills = Array.isArray(result?.skill_scores)
     ? result.skill_scores
@@ -720,10 +802,73 @@ function CandidateResultDetail({ row }) {
     ? result.question_scores
     : [];
 
+  const scoreIsFinal = status === "completed";
   const overallScore =
-    result?.score === null || result?.score === undefined
+    !scoreIsFinal || result?.score === null || result?.score === undefined
       ? null
       : Math.min(100, Math.max(0, Number(result.score) || 0));
+
+  const canOverrideScore =
+    Boolean(row.attempt_id) &&
+    row.attempt_status === "submitted" &&
+    ["completed", "needs_review"].includes(status);
+
+  const handleOverrideSubmit = async (event) => {
+    event.preventDefault();
+    setOverrideError("");
+    setOverrideSuccess("");
+
+    if (!canOverrideScore) {
+      setOverrideError(
+        "Only submitted attempts with completed results or results requiring review can be overridden."
+      );
+      return;
+    }
+
+    const scoreText = overrideScore.trim();
+    const reason = overrideReason.trim();
+
+    if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(scoreText)) {
+      setOverrideError(
+        "Enter a score from 0 to 100 with no more than two decimal places."
+      );
+      return;
+    }
+
+    const numericScore = Number(scoreText);
+    if (!Number.isFinite(numericScore) || numericScore < 0 || numericScore > 100) {
+      setOverrideError("The score must be between 0 and 100.");
+      return;
+    }
+
+    if (reason.length < 5) {
+      setOverrideError("Enter a meaningful reason of at least 5 characters.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm changing ${getCandidateName(row)}'s overall score to ${numericScore.toFixed(2)}%? This action will be recorded in the audit log.`
+    );
+
+    if (!confirmed) return;
+
+    setOverrideSubmitting(true);
+
+    try {
+      await onOverride(row, numericScore, reason);
+      setOverrideScore(numericScore.toFixed(2));
+      setOverrideReason("");
+      setOverrideSuccess(
+        "Score override saved. The change and reason were recorded in the audit log."
+      );
+    } catch (submissionError) {
+      setOverrideError(
+        submissionError?.message || "Unable to save the score override."
+      );
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
 
   return (
     <>
@@ -742,6 +887,11 @@ function CandidateResultDetail({ row }) {
               <p className="mt-1 break-all text-xs text-[#667085]">
                 {row.candidate_email || "No email available"}
               </p>
+              {isHrScoreOverridden(result) && (
+                <span className="mt-2 inline-flex rounded-full border border-[#D8DBF7] bg-[#F7F7FF] px-2.5 py-1 text-[9px] font-bold text-[#5658E8]">
+                  HR adjusted
+                </span>
+              )}
             </div>
 
             <span
@@ -793,11 +943,15 @@ function CandidateResultDetail({ row }) {
               </span>
 
               <span className="mt-1 text-[29px] font-semibold text-[#25264A]">
-                {formatPercent(overallScore)}
+                {formatResultScore(overallScore, result)}
               </span>
 
               <span className="mt-1 text-[10px] text-[#667085]">
-                {formatPoints(result?.earned_points, result?.max_points)}
+                {status === "completed"
+                  ? formatPoints(result?.earned_points, result?.max_points)
+                  : status === "needs_review"
+                    ? "Withheld pending HR review"
+                    : "Available after grading"}
               </span>
             </div>
           </div>
@@ -832,6 +986,130 @@ function CandidateResultDetail({ row }) {
           </div>
         </div>
       </section>
+
+      {canOverrideScore && (
+        <section
+          aria-labelledby="score-override-title"
+          className="overflow-hidden rounded-[22px] border border-[#E6D8B7] bg-white shadow-sm"
+        >
+          <div className="border-b border-[#F0E6D1] bg-[#FFFCF5] px-6 py-5 sm:px-7">
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#996515]">
+              HR review action
+            </p>
+            <h3
+              id="score-override-title"
+              className="mt-1.5 text-lg font-semibold text-[#202938]"
+            >
+              Manual score override
+            </h3>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-[#667085]">
+              Set a revised overall percentage and document why the change is
+              justified. Saving requires confirmation and creates an audit
+              record. This changes only the overall score. The original question-level, skill-level, and section-level grading details remain unchanged and available for audit and review.
+            </p>
+          </div>
+
+          <form onSubmit={handleOverrideSubmit} className="space-y-5 p-6 sm:p-7">
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-[#344054]">
+                  Revised overall score (%)
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  required
+                  value={overrideScore}
+                  onChange={(event) => setOverrideScore(event.target.value)}
+                  placeholder="Enter 0?100"
+                  aria-label="Revised overall score"
+                  className="mt-2 h-11 w-full rounded-xl border border-[#DDE1E9] bg-white px-3 text-sm text-[#344054] outline-none transition focus:border-[#7879EC] focus:ring-4 focus:ring-[#5658E8]/10"
+                />
+                <span className="mt-1.5 block text-[10px] text-[#98A2B3]">
+                  Up to two decimal places.
+                </span>
+              </label>
+
+              <div className="rounded-xl border border-[#EEF0F3] bg-[#FAFBFC] p-4">
+                <p className="text-xs font-semibold text-[#344054]">
+                  Selected candidate
+                </p>
+                <p className="mt-1 text-sm text-[#475467]">
+                  {getCandidateName(row)}
+                </p>
+                <p className="mt-1 text-[10px] text-[#98A2B3]">
+                  Attempt #{row.attempt_id}
+                </p>
+                <p className="mt-3 text-[10px] leading-5 text-[#667085]">
+                  Current saved score: {result?.score === null || result?.score === undefined ? "Not set" : formatResultScore(result.score, result)}
+                </p>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="text-xs font-semibold text-[#344054]">
+                Reason for override <span className="text-[#B42318">*</span>
+              </span>
+              <textarea
+                required
+                minLength={5}
+                maxLength={1000}
+                rows={4}
+                value={overrideReason}
+                onChange={(event) => setOverrideReason(event.target.value)}
+                placeholder="Explain the manual review decision and why the overall score should change."
+                aria-label="Reason for score override"
+                className="mt-2 w-full resize-y rounded-xl border border-[#DDE1E9] bg-white px-3 py-3 text-sm leading-6 text-[#344054] outline-none transition focus:border-[#7879EC] focus:ring-4 focus:ring-[#5658E8]/10"
+              />
+              <span className="mt-1.5 block text-[10px] text-[#98A2B3]">
+                Required. Avoid entering unnecessary personal information.
+              </span>
+            </label>
+
+            {overrideError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-[#E9C8C8] bg-[#FFF5F5] px-4 py-3 text-xs leading-5 text-[#B42318]"
+              >
+                {overrideError}
+              </p>
+            )}
+
+            {overrideSuccess && (
+              <p
+                role="status"
+                className="rounded-xl border border-[#CFE6DD] bg-[#F2FAF7] px-4 py-3 text-xs leading-5 text-[#17655E]"
+              >
+                {overrideSuccess}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#EEF0F3] pt-5">
+              <p className="max-w-lg text-[10px] leading-5 text-[#667085]">
+                The backend will validate your access, score, and reason before
+                saving the change.
+              </p>
+              <button
+                type="submit"
+                disabled={overrideSubmitting}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#25264A] px-5 py-3 text-xs font-semibold text-white transition hover:bg-[#353760] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {overrideSubmitting ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Saving override...
+                  </>
+                ) : (
+                  "Review and save override"
+                )}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       <ScoreBreakdown
         title="Skill-wise scores"

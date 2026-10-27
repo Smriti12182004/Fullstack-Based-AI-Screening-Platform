@@ -1395,6 +1395,16 @@ function Landing() {
               <span>
                 AI proposes · system validates · humans decide
               </span>
+              <span className="text-[12px] font-semibold text-white">
+                Built with Llama
+              </span>
+
+              <a
+                href="/llama-community-license.txt"
+                className="text-[11px] font-medium text-[#C0C4D8] underline underline-offset-4 transition hover:text-white"
+              >
+                Llama Community License
+              </a>
 
             </div>
 
