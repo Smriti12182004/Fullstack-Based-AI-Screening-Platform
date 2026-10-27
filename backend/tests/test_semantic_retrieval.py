@@ -1,3 +1,4 @@
+
 """
 Semantic retrieval tests for Evalyn.
 
@@ -6,6 +7,7 @@ Coverage:
 - Skill filtering is enforced.
 - Question-type and difficulty filters are enforced.
 - Semantic similarity returns relevant content.
+- The default embedding model uses a pinned revision.
 """
 
 from uuid import uuid4
@@ -15,6 +17,8 @@ import pytest
 from app.db.session import SessionLocal
 from app.models import Question, Skill
 from app.services.semantic_retrieval_service import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_MODEL_REVISION,
     SemanticRetrievalService,
     SemanticRetrievalError,
 )
@@ -22,7 +26,7 @@ from app.services.semantic_retrieval_service import (
 
 @pytest.fixture
 def db():
-    """Provide an isolated database session and roll back test data."""
+    """Provide an isolated database session and rollback test data."""
     session = SessionLocal()
 
     try:
@@ -56,6 +60,37 @@ def test_skill(db):
     db.flush()
 
     return skill
+
+
+def test_default_embedding_model_uses_pinned_revision(monkeypatch):
+    """The default model must load with the explicitly pinned revision."""
+    captured = {}
+
+    class FakeEmbeddingModel:
+        def get_embedding_dimension(self):
+            return 384
+
+    def fake_sentence_transformer(model_name, **kwargs):
+        captured["model_name"] = model_name
+        captured["kwargs"] = kwargs
+        return FakeEmbeddingModel()
+
+    monkeypatch.setattr(
+        "app.services.semantic_retrieval_service.SentenceTransformer",
+        fake_sentence_transformer,
+    )
+
+    service = SemanticRetrievalService()
+
+    assert captured["model_name"] == DEFAULT_EMBEDDING_MODEL
+    assert captured["kwargs"] == {
+        "revision": DEFAULT_EMBEDDING_MODEL_REVISION,
+    }
+    assert (
+        DEFAULT_EMBEDDING_MODEL_REVISION
+        == "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+    )
+    assert service.embedding_dimension == 384
 
 
 def create_question(

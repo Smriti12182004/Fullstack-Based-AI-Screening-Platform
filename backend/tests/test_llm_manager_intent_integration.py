@@ -87,9 +87,9 @@ def test_structured_manager_intent_is_used_without_forcing_one_focus(monkeypatch
             "question_type": "MCQ",
             "options": [
                 "Validate at the API boundary so invalid external data is rejected early",
-                "Never validate because callers should always be trusted",
-                "Validate only after writing the data to storage",
-                "Validate only when the application is shutting down",
+                "Trust incoming payloads and bypass all request validation checks",
+                "Persist incoming data first and validate the saved record afterward",
+                "Defer input validation until the request has fully finished processing",
             ],
             "correct_answer": "A",
             "explanation": "Boundary validation prevents invalid external data from entering the business flow.",

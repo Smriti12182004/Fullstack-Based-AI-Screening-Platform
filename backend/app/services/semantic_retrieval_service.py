@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +13,9 @@ from app.models import Question
 
 
 DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_EMBEDDING_MODEL_REVISION = (
+    "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+)
 
 
 class SemanticRetrievalError(Exception):
@@ -38,9 +42,27 @@ class SemanticRetrievalService:
         self,
         model_name: str = DEFAULT_EMBEDDING_MODEL,
         model: SentenceTransformer | None = None,
+        model_revision: str | None = None,
     ) -> None:
         try:
-            self.model = model or SentenceTransformer(model_name)
+            if model is not None:
+                self.model = model
+            else:
+                if (
+                    model_revision is None
+                    and model_name == DEFAULT_EMBEDDING_MODEL
+                ):
+                    model_revision = DEFAULT_EMBEDDING_MODEL_REVISION
+
+                model_kwargs = (
+                    {"revision": model_revision}
+                    if model_revision is not None
+                    else {}
+                )
+                self.model = SentenceTransformer(
+                    model_name,
+                    **model_kwargs,
+                )
         except Exception as exc:
             raise SemanticRetrievalError(
                 f"Unable to load embedding model '{model_name}'."
@@ -48,9 +70,7 @@ class SemanticRetrievalService:
 
         self.index: faiss.IndexFlatIP | None = None
         self.question_ids: list[int] = []
-        self.embedding_dimension = (
-             self.model.get_embedding_dimension()
-        )
+        self.embedding_dimension = self.model.get_embedding_dimension()
 
         if self.embedding_dimension is None:
             raise SemanticRetrievalError(
@@ -73,9 +93,7 @@ class SemanticRetrievalService:
             if question.status == "approved"
         ]
 
-        self.index = faiss.IndexFlatIP(
-            self.embedding_dimension
-        )
+        self.index = faiss.IndexFlatIP(self.embedding_dimension)
         self.question_ids = []
 
         if not approved_questions:
@@ -103,10 +121,7 @@ class SemanticRetrievalService:
                 "Unable to generate question embeddings."
             ) from exc
 
-        embeddings = np.asarray(
-            embeddings,
-            dtype=np.float32,
-        )
+        embeddings = np.asarray(embeddings, dtype=np.float32)
 
         if embeddings.ndim != 2:
             raise SemanticRetrievalError(
@@ -168,11 +183,7 @@ class SemanticRetrievalService:
         if difficulty is not None:
             difficulty = difficulty.strip().lower()
 
-            if difficulty not in {
-                "easy",
-                "medium",
-                "hard",
-            }:
+            if difficulty not in {"easy", "medium", "hard"}:
                 raise SemanticRetrievalError(
                     "Difficulty must be easy, medium, or hard."
                 )
@@ -197,10 +208,7 @@ class SemanticRetrievalService:
             dtype=np.float32,
         )
 
-        if query_embedding.shape != (
-            1,
-            self.embedding_dimension,
-        ):
+        if query_embedding.shape != (1, self.embedding_dimension):
             raise SemanticRetrievalError(
                 "Search-query embedding has an unexpected dimension."
             )
@@ -237,10 +245,7 @@ class SemanticRetrievalService:
 
         results: list[SemanticSearchResult] = []
 
-        for position, score in zip(
-            positions[0],
-            scores[0],
-        ):
+        for position, score in zip(positions[0], scores[0]):
             if position < 0:
                 continue
 
@@ -250,10 +255,7 @@ class SemanticRetrievalService:
             if question is None:
                 continue
 
-            if (
-                skill_id is not None
-                and question.skill_id != skill_id
-            ):
+            if skill_id is not None and question.skill_id != skill_id:
                 continue
 
             if (

@@ -3771,18 +3771,52 @@ The repaired question MUST visibly execute the supplied plan.
                         "Generated output-prediction question did not explicitly ask about the code's output or result."
                     )
 
-                focus_matches = (
-                    _matches_non_technical_generation_focus(
-                        generated_question,
-                        normalized_focus,
+                intent_patterns: list[str] = []
+                if interpreted_manager_intent is not None:
+                    if isinstance(interpreted_manager_intent, dict):
+                        raw_patterns = interpreted_manager_intent.get(
+                            "requested_patterns", []
+                        )
+                    else:
+                        raw_patterns = getattr(
+                            interpreted_manager_intent,
+                            "requested_patterns",
+                            [],
+                        )
+
+                    if isinstance(raw_patterns, (list, tuple, set)):
+                        intent_patterns = list(
+                            dict.fromkeys(
+                                str(pattern).strip().casefold()
+                                for pattern in raw_patterns
+                                if str(pattern).strip()
+                            )
+                        )
+
+                # A structured mixed-focus request must not be reduced to
+                # the single automatic focus inferred from the manager prompt.
+                if intent_patterns and normalized_skill_category != "non_technical":
+                    focus_matches = any(
+                        _matches_manager_focus_strict(
+                            generated_question,
+                            pattern,
+                            normalized_section_type,
+                        )
+                        for pattern in intent_patterns
                     )
-                    if normalized_skill_category == "non_technical"
-                    else _matches_generation_focus(
-                        generated_question,
-                        normalized_focus,
-                        normalized_section_type,
+                else:
+                    focus_matches = (
+                        _matches_non_technical_generation_focus(
+                            generated_question,
+                            normalized_focus,
+                        )
+                        if normalized_skill_category == "non_technical"
+                        else _matches_generation_focus(
+                            generated_question,
+                            normalized_focus,
+                            normalized_section_type,
+                        )
                     )
-                )
                 if not focus_matches:
                     raise LLMResponseError(
                         f"Generated question did not follow the requested {normalized_focus} question focus."

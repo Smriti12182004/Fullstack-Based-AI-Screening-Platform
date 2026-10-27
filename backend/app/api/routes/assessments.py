@@ -1,5 +1,6 @@
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 import logging
 from typing import Literal
@@ -17,6 +18,7 @@ from app.models import (
     AssessmentQuestion,
     Attempt,
     AuditEvent,
+    Job,
     JobAssessmentAccess,
     QuestionSet,
     QuestionSetConfiguration,
@@ -47,6 +49,50 @@ logger = logging.getLogger(__name__)
 QUEUE_FAILURE_FEEDBACK = (
     "Automatic grading could not be queued. HR review is required."
 )
+
+
+class AssessmentScoreOverrideRequest(BaseModel):
+    """Validated HR input for manually reviewed assessment scores."""
+
+    score: Decimal = Field(
+        ge=Decimal("0"),
+        le=Decimal("100"),
+        max_digits=5,
+        decimal_places=2,
+    )
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+def _serialize_assessment_result(result):
+    """Serialize grading results without exposing unconfirmed aggregate scores."""
+    if result is None:
+        return None
+
+    score_is_final = str(result.status or "").strip().lower() == "completed"
+
+    return {
+        "status": result.status,
+        "score": (
+            float(result.score)
+            if score_is_final and result.score is not None
+            else None
+        ),
+        "earned_points": (
+            float(result.earned_points)
+            if score_is_final and result.earned_points is not None
+            else None
+        ),
+        "max_points": (
+            float(result.max_points)
+            if score_is_final and result.max_points is not None
+            else None
+        ),
+        "skill_scores": result.skill_scores or [],
+        "section_scores": result.section_scores or [],
+        "question_scores": result.question_scores or [],
+        "feedback": result.feedback,
+        "graded_at": _as_utc(result.graded_at),
+    }
 
 
 def _is_retryable_queue_failure(result: Result | None) -> bool:
@@ -1299,29 +1345,7 @@ def get_assessment_results_for_hr(
 
         return str(name), email
 
-    def serialize_result(result: Result | None) -> dict | None:
-        if result is None:
-            return None
-
-        return {
-            "status": result.status,
-            "score": float(result.score) if result.score is not None else None,
-            "earned_points": (
-                float(result.earned_points)
-                if result.earned_points is not None
-                else None
-            ),
-            "max_points": (
-                float(result.max_points)
-                if result.max_points is not None
-                else None
-            ),
-            "skill_scores": result.skill_scores or [],
-            "section_scores": result.section_scores or [],
-            "question_scores": result.question_scores or [],
-            "feedback": result.feedback,
-            "graded_at": _as_utc(result.graded_at),
-        }
+    serialize_result = _serialize_assessment_result
 
     for attempt in attempts:
         candidate_name, candidate_email = candidate_identity(
@@ -1405,6 +1429,184 @@ def get_assessment_results_for_hr(
         "candidate_count": len(rows),
         "submission_count": submission_count,
         "results": rows,
+    }
+
+
+@router.post("/{assessment_id}/results/{attempt_id}/override")
+def override_assessment_result_for_hr(
+    assessment_id: int,
+    attempt_id: int,
+    request: AssessmentScoreOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_any_role("recruiter", "assessment_manager")
+    ),
+):
+    """Apply an authorized and auditable HR score override."""
+    assessment = _get_assessment_for_assignment(
+        db=db,
+        assessment_id=assessment_id,
+        current_user=current_user,
+    )
+
+    user_id = int(current_user["user_id"])
+
+    # Recruiters must own the job or have explicit access.
+    if current_user["role"] == "recruiter":
+        owns_job = (
+            db.query(Job.id)
+            .filter(
+                Job.id == assessment.job_id,
+                Job.created_by == user_id,
+            )
+            .first()
+        )
+        has_access = (
+            db.query(JobAssessmentAccess.id)
+            .filter(
+                JobAssessmentAccess.job_id == assessment.job_id,
+                JobAssessmentAccess.user_id == user_id,
+            )
+            .first()
+        )
+        if owns_job is None and has_access is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not authorized to override scores for this job.",
+            )
+
+    # Ensure the attempt belongs to this particular assessment.
+    attempt = (
+        db.query(Attempt)
+        .filter(
+            Attempt.id == attempt_id,
+            Attempt.assessment_id == assessment.id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if attempt is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Assessment attempt not found.",
+        )
+
+    if attempt.status != "submitted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only submitted attempts can have their score overridden.",
+        )
+
+    result = (
+        db.query(Result)
+        .filter(Result.attempt_id == attempt.id)
+        .order_by(Result.id.desc())
+        .with_for_update()
+        .first()
+    )
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No grading result exists for this attempt.",
+        )
+
+    if result.status == "grading":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Grading is in progress; the score cannot be overridden yet.",
+        )
+
+    if result.status not in {"completed", "needs_review"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only completed or review-required results can be overridden.",
+        )
+
+    reason = request.reason.strip()
+    if len(reason) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A meaningful score-override reason is required.",
+        )
+
+    previous_score = (
+        float(result.score) if result.score is not None else None
+    )
+    previous_status = result.status
+    previous_earned_points = (
+        float(result.earned_points)
+        if result.earned_points is not None
+        else None
+    )
+
+    new_score = request.score.quantize(Decimal("0.01"))
+    result.score = new_score
+    result.status = "completed"
+    result.graded_at = utc_now()
+
+    if result.max_points is not None:
+        result.earned_points = (
+            new_score * Decimal(str(result.max_points)) / Decimal("100")
+        ).quantize(Decimal("0.01"))
+    else:
+        result.earned_points = None
+
+    note = f"HR score override: {reason}"
+    existing_feedback = (result.feedback or "").strip()
+    result.feedback = (
+        f"{existing_feedback}\n\n{note}"
+        if existing_feedback
+        else note
+    )
+
+    # The score update and audit event commit together.
+    _record_assessment_event(
+        db,
+        user_id=user_id,
+        attempt_id=attempt.id,
+        action="assessment_score_overridden",
+        assessment_id=assessment.id,
+        details={
+            "previous_score": previous_score,
+            "new_score": float(new_score),
+            "previous_status": previous_status,
+            "new_status": "completed",
+            "previous_earned_points": previous_earned_points,
+            "new_earned_points": (
+                float(result.earned_points)
+                if result.earned_points is not None
+                else None
+            ),
+            "max_points": (
+                float(result.max_points)
+                if result.max_points is not None
+                else None
+            ),
+            "reason": reason,
+        },
+    )
+
+    try:
+        db.commit()
+        db.refresh(result)
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "Failed to commit HR score override: assessment=%s attempt=%s",
+            assessment.id,
+            attempt.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save the score override.",
+        ) from exc
+
+    return {
+        "assessment_id": assessment.id,
+        "attempt_id": attempt.id,
+        "candidate_id": attempt.candidate_id,
+        "result": _serialize_assessment_result(result),
     }
 
 
