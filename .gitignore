@@ -312,3 +312,10 @@ licensing-audit-review-bundle-*
 *.sqlite
 *.sqlite3
 licensing-audit-review-bundle*.zip
+
+# Deployment secrets - never commit
+/.env.production
+/.env.production.local
+
+# Track the sanitized deployment template, never production secrets
+!/.env.production.example
