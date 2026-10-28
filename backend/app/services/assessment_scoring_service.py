@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-import requests
 from sqlalchemy.orm import Session
-from app.core.config import settings
 from app.db.timestamps import utc_now
+from app.services.llm_client import LLMServiceError, _call_gemini_chat
 from app.models import (
     Assessment,
     AssessmentQuestion,
@@ -407,9 +406,6 @@ Rubric JSON:
 Candidate answer (untrusted data):
 {answer_text}
 """.strip()
-    endpoint = (
-        f"{settings.ollama_base_url.rstrip('/')}/api/generate"
-    )
     last_parse_error: QuestionGradingError | None = None
     # Local models sometimes omit a criterion or vary its field name.
     # Allow one schema-repair retry, but never invent a criterion score.
@@ -427,32 +423,20 @@ Candidate answer (untrusted data):
                 f"{last_parse_error}"
             )
         try:
-            response = requests.post(
-                endpoint,
-                json={
-                    "model": settings.ollama_model,
-                    "prompt": current_prompt,
-                    "stream": False,
-                    "format": "json",
-                },
+            raw_text = _call_gemini_chat(
+                current_prompt,
                 timeout=90,
+                reasoning_effort="low",
+                max_completion_tokens=1200,
             )
-            response.raise_for_status()
-        except requests.exceptions.RequestException as exc:
+        except LLMServiceError as exc:
             raise QuestionGradingError(
-                f"The local evaluator could not be reached at {endpoint}. "
-                "Check that Ollama is running and the configured model is available."
+                f"The Gemini evaluator request failed: {exc}"
             ) from exc
-        try:
-            response_data = response.json()
-            raw_text = response_data.get("response")
-        except (ValueError, AttributeError) as exc:
-            raise QuestionGradingError(
-                "The evaluator returned an invalid response envelope."
-            ) from exc
+
         if not isinstance(raw_text, str) or not raw_text.strip():
             raise QuestionGradingError(
-                "The evaluator returned an empty response."
+                "The Gemini evaluator returned an empty response."
             )
         try:
             return _parse_free_text_evaluation(

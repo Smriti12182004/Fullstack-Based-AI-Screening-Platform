@@ -1,5 +1,4 @@
 import json
-from unittest.mock import Mock
 
 import pytest
 
@@ -148,21 +147,13 @@ def test_free_text_evaluation_retry_includes_exact_validation_error(monkeypatch)
     prompts = []
     responses = [invalid_payload, valid_payload]
 
-    def fake_post(_url, *, json, timeout):
-        prompts.append(json["prompt"])
-        response = Mock()
-        response.raise_for_status.return_value = None
-        response.json.return_value = {
-            "response": json_module_dumps(responses[len(prompts) - 1])
-        }
-        return response
-
-    def json_module_dumps(payload):
-        return __import__("json").dumps(payload)
+    def fake_gemini(prompt, **_kwargs):
+        prompts.append(prompt)
+        return json.dumps(responses[len(prompts) - 1])
 
     monkeypatch.setattr(
-        "app.services.assessment_scoring_service.requests.post",
-        fake_post,
+        "app.services.assessment_scoring_service._call_gemini_chat",
+        fake_gemini,
     )
 
     result = _evaluate_free_text(
