@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 
 from fastapi import (
@@ -17,6 +18,8 @@ from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
 from app.models import Job, JobAssessmentAccess, User
 from app.schemas.job import (
+    BulkJobDeleteRequest,
+    BulkJobDeleteResponse,
     JobCreate,
     JobDescriptionGenerationRequest,
     JobDescriptionGenerationResponse,
@@ -39,6 +42,9 @@ from app.services.skill_review_service import (
     update_job_skills,
 )
 from app.services.skill_service import extract_and_save_job_skills
+
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(
@@ -614,10 +620,9 @@ def delete_job(
 ):
     """Delete a recruiter-owned job.
 
-    The delete is intentionally ownership-scoped. SQLAlchemy/database
-    cascade rules remove job-owned related records where configured.
-    If a dependent assessment still blocks the delete, return a conflict
-    instead of leaving the transaction partially applied.
+    SQLAlchemy and database cascade rules remove job-owned related records
+    where configured. A dependent assessment that blocks the deletion
+    causes a conflict response instead of a partially applied transaction.
     """
 
     job = (
@@ -654,12 +659,124 @@ def delete_job(
     except SQLAlchemyError as exc:
         db.rollback()
 
+        logger.exception(
+            "Job deletion failed for job_id=%s",
+            job_id,
+        )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to delete the job.",
         ) from exc
 
     return None
+
+
+@router.post(
+    "/bulk-delete",
+    response_model=BulkJobDeleteResponse,
+)
+def bulk_delete_jobs(
+    request: BulkJobDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("recruiter")
+    ),
+):
+    """Delete up to 100 recruiter-owned jobs with per-job results.
+
+    Jobs are committed independently so a blocked job does not undo other
+    successful deletions. Missing and unowned IDs have the same response
+    to avoid disclosing another recruiter's job IDs.
+    """
+
+    job_ids = list(dict.fromkeys(request.job_ids))
+    deleted_ids: list[int] = []
+    failures: list[dict[str, str | int]] = []
+
+    for job_id in job_ids:
+        try:
+            job = (
+                db.query(Job)
+                .filter(
+                    Job.id == job_id,
+                    Job.created_by == current_user["user_id"],
+                )
+                .first()
+            )
+        except SQLAlchemyError:
+            db.rollback()
+
+            logger.exception(
+                "Bulk job deletion lookup failed for job_id=%s",
+                job_id,
+            )
+
+            failures.append({
+                "job_id": job_id,
+                "reason": "error",
+                "detail": (
+                    "A database error prevented this job from being checked."
+                ),
+            })
+            continue
+
+        if job is None:
+            failures.append({
+                "job_id": job_id,
+                "reason": "not_found",
+                "detail": (
+                    "Job not found or you do not have permission "
+                    "to delete it."
+                ),
+            })
+            continue
+
+        try:
+            db.delete(job)
+            db.commit()
+
+            deleted_ids.append(job_id)
+
+        except IntegrityError:
+            db.rollback()
+
+            logger.info(
+                "Bulk job deletion blocked by dependent records for job_id=%s",
+                job_id,
+            )
+
+            failures.append({
+                "job_id": job_id,
+                "reason": "blocked",
+                "detail": (
+                    "This job is linked to assessment or other dependent "
+                    "data. That data must be handled before the job "
+                    "can be deleted."
+                ),
+            })
+
+        except SQLAlchemyError:
+            db.rollback()
+
+            logger.exception(
+                "Bulk job deletion failed for job_id=%s",
+                job_id,
+            )
+
+            failures.append({
+                "job_id": job_id,
+                "reason": "error",
+                "detail": (
+                    "A database error prevented this job from being deleted."
+                ),
+            })
+
+    return BulkJobDeleteResponse(
+        requested_count=len(job_ids),
+        deleted_ids=deleted_ids,
+        failures=failures,
+    )
 
 
 @router.get(
