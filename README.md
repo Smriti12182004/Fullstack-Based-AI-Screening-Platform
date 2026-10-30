@@ -160,7 +160,7 @@ Access to protected pages and API operations is controlled by the authenticated 
 The main recruitment-to-assessment workflow is:
 
 1. **Create a job** — HR / Recruiter creates the vacancy and enters its requirements.
-2. **Review job skills** — Evalyn assists with skill extraction; HR checks and confirms the skills.
+2. **Review job skills** — HR can add skills manually, generate skill suggestions using AI, or extract skills from a Job Description. HR then reviews and confirms the skills.
 3. **Assign the assessment team** — HR assigns an Assessment Manager and an independent Assessment Reviewer.
 4. **Prepare the assessment** — The Assessment Manager configures assessment content and generates or selects questions.
 5. **Validate and review** — Question validation and independent human review take place before assessment publication.
@@ -172,25 +172,77 @@ The main recruitment-to-assessment workflow is:
 
 The following flowchart shows how the different roles interact throughout the recruitment and assessment process.
 
-```mermaid
-flowchart TD
-    A([Start]) --> B["HR / Recruiter: Create job"]
-    B --> C["AI: Extract skills from job description"]
-    C --> D["HR / Recruiter: Review and confirm skills"]
-    D --> E["HR / Recruiter: Assign Assessment Manager and Reviewer"]
-    E --> F["Assessment Manager: Configure assessment"]
-    F --> G["AI: Generate question drafts"]
-    G --> H["System: Validate questions"]
-    H --> I["Assessment Reviewer: Review questions"]
-    I --> J{"Review decision"}
-    J -- "Changes requested" --> F
-    J -- "Approved" --> K["Assessment Manager: Finalize assessment"]
-    K --> L["Publish assessment"]
-    L --> M["HR / Recruiter: Assign candidates"]
-    M --> N["Candidate: Complete and submit assessment"]
-    N --> O["System: Evaluate MCQ and free-text responses"]
-    O --> P["HR / Recruiter: Review results"]
-    P --> Q([End])
+```text
+                         [START]
+                            |
+                            v
+                 [HR / Recruiter: Create Job]
+                            |
+                            v
+                  [Provide Job Skills Using
+                     ONE of These Options]
+                            |
+             +--------------+--------------+
+             |              |              |
+             v              v              v
+       [Add Skills     [Generate Skill  [Extract Skills
+        Manually]       Suggestions      from Job
+                        with AI]          Description]
+             |              |              |
+             +--------------+--------------+
+                            |
+                            v
+             [HR: Review, Edit and Confirm
+                       Job Skills]
+                            |
+                            v
+             [HR: Assign Assessment Manager
+                    and Reviewer]
+                            |
+                            v
+            [Assessment Manager: Configure
+                      Assessment]
+                            |
+                            v
+               [AI: Generate Question Drafts]
+                            |
+                            v
+                [System: Validate Questions]
+                            |
+                            v
+              [Assessment Reviewer: Review
+                       Questions]
+                            |
+                            v
+                    [Reviewer Decision]
+                      /           \
+                     /             \
+          [Changes Required]     [Approved]
+                  |                  |
+                  v                  v
+        [Assessment Manager:   [Assessment Manager:
+         Revise Assessment]     Finalize Assessment]
+                  |                  |
+                  +-----> Back to    v
+                    Assessment     [Publish
+                    Configuration  Assessment]
+                                      |
+                                      v
+                         [HR: Assign Candidates]
+                                      |
+                                      v
+                        [Candidate: Complete and
+                           Submit Assessment]
+                                      |
+                                      v
+                         [System: Evaluate MCQ
+                           and Free-Text Answers]
+                                      |
+                                      v
+                          [HR: Review Results]
+                                      |
+                                      v
+                                    [END]
 ```
 
 ## System Architecture
