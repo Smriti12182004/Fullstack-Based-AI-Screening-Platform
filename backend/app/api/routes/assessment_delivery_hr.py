@@ -249,7 +249,7 @@ const formatDate = (value) => new Date(value).toLocaleString(undefined, {{dateSt
 (async () => {{
   if (!token) {{ $('heading').textContent='Invitation link is missing'; $('status').textContent='Open the complete invitation link from your email.'; return; }}
   try {{
-    const response = await fetch('/assessment-delivery/candidate-invitations/validate', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token}})}});
+    const response = await fetch(new URL('assessment-delivery/candidate-invitations/validate', new URL('/api/', window.location.origin)).toString(), {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token}})}});
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || 'This invitation is invalid or expired.');
     $('heading').textContent=data.assessment_title;

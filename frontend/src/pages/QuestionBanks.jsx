@@ -75,6 +75,24 @@ const JD_HEADING_PATTERNS = [
    MAIN PAGE
 ============================================================ */
 
+const REVIEWER_CARD_PALETTES = [
+  {
+    accent: "#4A61C8",
+    accentDark: "#3B54AC",
+    light: "#EAF2FF",
+  },
+  {
+    accent: "#7862C8",
+    accentDark: "#6250A8",
+    light: "#F0EBFB",
+  },
+  {
+    accent: "#0F9D8A",
+    accentDark: "#08786B",
+    light: "#E5F7F3",
+  },
+];
+
 function QuestionBanks() {
   const navigate = useNavigate();
   const { logout, auth } = useAuth();
@@ -182,15 +200,9 @@ function QuestionBanks() {
           await api.get(
             "/question-banks",
             {
-              params:
-                yearFilter !== "all"
-                  ? {
-                      hiring_year:
-                        Number(
-                          yearFilter
-                        ),
-                    }
-                  : {},
+              params: isAssessmentManager && yearFilter !== "all"
+                ? { hiring_year: Number(yearFilter) }
+                : {},
               timeout: 10000,
             }
           );
@@ -356,25 +368,22 @@ function QuestionBanks() {
             ).includes(query);
 
           const matchesStatus =
-            statusFilter ===
-              "all" ||
-            String(
-              bank.status ||
-                "active"
-            )
-              .toLowerCase() ===
+            statusFilter === "all" ||
+            String(bank.status || "active").toLowerCase() ===
               statusFilter.toLowerCase();
 
-          return (
-            matchesSearch &&
-            matchesStatus
-          );
+          const matchesYear =
+            yearFilter === "all" ||
+            Number(bank.hiring_year) === Number(yearFilter);
+
+          return matchesSearch && matchesStatus && matchesYear;
         }
       );
     }, [
       banks,
       search,
       statusFilter,
+      yearFilter,
     ]);
 
   /* ==========================================================
@@ -685,6 +694,18 @@ function QuestionBanks() {
     }
   };
 
+  const visibleAssignedJobCards = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return assignedJobCards;
+
+    return assignedJobCards.filter((job) =>
+      [job.title, job.id, job.description].some((value) =>
+        String(value ?? "").toLowerCase().includes(query)
+      )
+    );
+  }, [assignedJobCards, search]);
+
   return (
     <RecruiterLayout
       title="Assessment Sets"
@@ -815,6 +836,196 @@ function QuestionBanks() {
           </section>
         )}
 
+                {isAssessmentManager && (
+          <section className="rounded-2xl border border-[#E3E6EB] bg-white p-4 shadow-sm">
+            <label className="flex items-center gap-3">
+              <Search size={18} className="shrink-0 text-[#667085]" />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search shared jobs by title, ID, or description..."
+                aria-label="Search shared assessment jobs"
+                className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[#344054] outline-none placeholder:text-[#98A2B3]"
+              />
+              {search.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="shrink-0 text-xs font-semibold text-[#5658E8] hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+          </section>
+        )}
+
+        {/* AVAILABLE QUESTION BANKS - REVIEWER VIEW */}
+        {!isAssessmentManager && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
+                  Reviewer workspace
+                </p>
+                <h2 className="mt-2 text-[23px] font-semibold tracking-[-0.025em] text-[#1B2430]">
+                  Available Question Banks
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">
+                  Browse the available hiring-cycle libraries in read-only mode. Open Assessment Review to approve or reject submitted assessment sets.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/review")}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#5658E8] px-4 text-xs font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#4648C9]"
+              >
+                Open Assessment Review
+                <ArrowRight size={14} />
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-[#E3E6EB] bg-white p-4 shadow-sm">
+              <label className="flex items-center gap-3">
+                <Search size={18} className="shrink-0 text-[#667085]" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search question banks by name, job ID, or year..."
+                  aria-label="Search available question banks"
+                  className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[#344054] outline-none placeholder:text-[#98A2B3]"
+                />
+                {search.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="shrink-0 text-xs font-semibold text-[#5658E8] hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </label>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <label className="flex flex-col gap-1.5 rounded-xl border border-[#E3E6EB] bg-white p-3">
+                <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                  Hiring Year
+                </span>
+                <select
+                  value={yearFilter}
+                  onChange={(event) => setYearFilter(event.target.value)}
+                  aria-label="Filter question banks by hiring year"
+                  className="h-9 w-full rounded-lg border border-[#D9DEE7] bg-white px-2.5 text-sm text-[#344054] outline-none focus:border-[#5658E8] focus:ring-2 focus:ring-[#5658E8]/10"
+                >
+                  <option value="all">All years</option>
+                  {availableYears.map((year) => (
+                    <option key={year} value={String(year)}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1.5 rounded-xl border border-[#E3E6EB] bg-white p-3">
+                <span className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8A94A8]">
+                  Status
+                </span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  aria-label="Filter question banks by status"
+                  className="h-9 w-full rounded-lg border border-[#D9DEE7] bg-white px-2.5 text-sm text-[#344054] outline-none focus:border-[#5658E8] focus:ring-2 focus:ring-[#5658E8]/10"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </label>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  disabled={
+                    !search.trim() &&
+                    yearFilter === "all" &&
+                    statusFilter === "all"
+                  }
+                  className="h-10 w-full rounded-lg border border-[#D9DEE7] bg-white px-4 text-xs font-semibold text-[#475467] transition hover:border-[#5658E8] hover:text-[#5658E8] disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto"
+                >
+                  Clear filters
+                </button>
+              </div>
+            </div>
+
+            {loadingBanks ? (
+              <div className="rounded-[20px] border border-[#E3E6EB] bg-white p-10 text-center">
+                <RefreshCw size={21} className="mx-auto animate-spin text-[#5658E8]" />
+                <p className="mt-3 text-sm font-semibold text-[#344054]">
+                  Loading available question banks...
+                </p>
+              </div>
+            ) : filteredBanks.length === 0 ? (
+              <div className="rounded-[20px] border border-dashed border-[#CBD2DD] bg-white px-6 py-12 text-center shadow-sm">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F0EBFB] text-[#7862C8]">
+                  <Archive size={24} />
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-[#202938]">
+                  {search.trim()
+                    ? "No matching question banks"
+                    : "No question banks available yet"}
+                </h3>
+                <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#667085]">
+                  {search.trim()
+                    ? "Try a different name, job ID, or hiring year."
+                    : "There are no question banks in the list returned by the server. Submitted assessment sets can be checked in the review queue."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/review")}
+                  className="mt-5 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#D8DDF0] bg-[#F8F7FF] px-4 text-xs font-semibold text-[#6250A8] transition hover:bg-[#F0EDFF]"
+                >
+                  Go to Assessment Review
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-[#667085]">
+                  Showing {filteredBanks.length} question bank{filteredBanks.length === 1 ? "" : "s"}
+                </p>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {filteredBanks.map((bank, index) => {
+                    const status = getStatusConfig(bank.status);
+                    return (
+                      <QuestionBankCard
+                        key={bank.id}
+                        bank={bank}
+                        index={index}
+                        palette={REVIEWER_CARD_PALETTES[index % REVIEWER_CARD_PALETTES.length]}
+                        status={status}
+                        StatusIcon={status.icon}
+                        formatDate={formatDate}
+                        isAssessmentManager={false}
+                        isAssessmentReviewer={true}
+                        onOpen={() =>
+                          navigate(
+                            `/review/jobs/${Number(bank.job_id)}/sets?hiring_year=${Number(bank.hiring_year)}`
+                          )
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
         {/* =====================================================
             MANAGER JOBS
         ===================================================== */}
@@ -854,8 +1065,7 @@ function QuestionBanks() {
 
               </div>
 
-            ) : assignedJobCards.length ===
-              0 ? (
+            ) : visibleAssignedJobCards.length === 0 ? (
 
               <div className="rounded-[20px] border border-dashed border-[#CBD2DD] bg-[#FAFBFC] p-10 text-center">
 
@@ -868,11 +1078,11 @@ function QuestionBanks() {
                 </div>
 
                 <p className="mt-4 text-sm font-semibold text-[#344054]">
-                  No jobs shared yet
+                  {search.trim() ? "No matching jobs found" : "No jobs shared yet"}
                 </p>
 
                 <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[#667085]">
-                  Jobs will appear here after HR confirms the skill scope and shares the role with you.
+                  {search.trim() ? "Try a different search term." : "Jobs will appear here after HR confirms the skill scope and shares the role with you."}
                 </p>
 
               </div>
@@ -881,7 +1091,7 @@ function QuestionBanks() {
 
               <div className="grid gap-4 lg:grid-cols-2">
 
-                {assignedJobCards.map(
+                {visibleAssignedJobCards.map(
                   (
                     job,
                     index
@@ -924,341 +1134,9 @@ function QuestionBanks() {
           </section>
         )}
 
-        {/* =====================================================
-            LIBRARY OVERVIEW
-        ===================================================== */}
 
-        <section>
 
-          <div className="mb-5">
-
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#5658E8]">
-              Library overview
-            </p>
-
-            <h2 className="mt-2 text-[23px] font-semibold tracking-[-0.025em] text-[#1B2430]">
-              Question Bank activity
-            </h2>
-
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-
-            <SummaryCard
-              label="Total banks"
-              value={
-                loadingBanks
-                  ? "..."
-                  : banks.length
-              }
-              description="Annual question banks available"
-              icon={
-                <Archive size={18} />
-              }
-              background="#EAF2FF"
-              color="#3B82F6"
-            />
-
-            <SummaryCard
-              label="Active banks"
-              value={
-                loadingBanks
-                  ? "..."
-                  : activeCount
-              }
-              description="Currently available for use"
-              icon={
-                <CheckCircle2
-                  size={18}
-                />
-              }
-              background="#E5F7F3"
-              color="#0F9D8A"
-            />
-
-            <SummaryCard
-              label="Hiring years"
-              value={
-                loadingBanks
-                  ? "..."
-                  : availableYears.length
-              }
-              description="Distinct annual question cycles"
-              icon={
-                <CalendarDays
-                  size={18}
-                />
-              }
-              background="#F0EBFB"
-              color="#7A61D8"
-            />
-
-          </div>
-
-        </section>
-
-        {/* =====================================================
-            FILTERS
-        ===================================================== */}
-
-        <section className="rounded-[18px] border border-[#E3E6EB] bg-white p-4 shadow-[0_8px_24px_rgba(27,37,58,0.03)] sm:p-5">
-
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-
-            <div className="group/search relative flex-1">
-
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3] transition-colors duration-200 group-focus-within/search:text-[#7A61D8]"
-              />
-
-              <input
-                type="text"
-                value={search}
-                onChange={(event) =>
-                  setSearch(
-                    event.target.value
-                  )
-                }
-                placeholder="Search by bank name, job ID, or year..."
-                className="h-11 w-full rounded-lg border border-[#D7DDE6] bg-white pl-10 pr-3 text-sm text-[#202938] outline-none transition-all duration-200 placeholder:text-[#98A2B3] hover:border-[#C6CDD9] focus:border-[#7A61D8] focus:ring-4 focus:ring-[#7A61D8]/10"
-              />
-
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:w-[430px]">
-
-              <select
-                value={yearFilter}
-                onChange={(event) =>
-                  setYearFilter(
-                    event.target.value
-                  )
-                }
-                className="h-11 rounded-lg border border-[#D7DDE6] bg-white px-3 text-sm text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-              >
-
-                <option value="all">
-                  All hiring years
-                </option>
-
-                {availableYears.map(
-                  (year) => (
-                    <option
-                      key={year}
-                      value={year}
-                    >
-                      {year}
-                    </option>
-                  )
-                )}
-
-              </select>
-
-              <select
-                value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(
-                    event.target.value
-                  )
-                }
-                className="h-11 rounded-lg border border-[#D7DDE6] bg-white px-3 text-sm text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
-              >
-
-                <option value="all">
-                  All statuses
-                </option>
-
-                <option value="active">
-                  Active
-                </option>
-
-                <option value="inactive">
-                  Inactive
-                </option>
-
-                <option value="archived">
-                  Archived
-                </option>
-
-              </select>
-
-            </div>
-
-            {(search ||
-              yearFilter !==
-                "all" ||
-              statusFilter !==
-                "all") && (
-
-              <button
-                type="button"
-                onClick={
-                  clearFilters
-                }
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[#D7DDE6] bg-white px-3.5 text-xs font-semibold text-[#667085] transition duration-200 hover:-translate-y-0.5 hover:border-[#5658E8] hover:bg-[#FAF9FF] hover:text-[#5658E8]"
-              >
-
-                Clear
-
-                <X size={13} />
-
-              </button>
-            )}
-
-          </div>
-
-        </section>
-
-        {/* =====================================================
-            BANK CONTENT
-        ===================================================== */}
-
-        {loadingBanks ? (
-
-          <section className="flex min-h-[300px] items-center justify-center rounded-[20px] border border-[#E3E6EB] bg-white">
-
-            <div className="text-center">
-
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F0EBFB] text-[#7A61D8]">
-
-                <RefreshCw
-                  size={21}
-                  className="animate-spin"
-                />
-
-              </div>
-
-              <p className="mt-5 text-sm font-semibold text-[#344054]">
-                Loading question banks
-              </p>
-
-              <p className="mt-1 text-xs text-[#98A2B3]">
-                Fetching annual library data.
-              </p>
-
-            </div>
-
-          </section>
-
-        ) : filteredBanks.length ===
-          0 ? (
-
-          <section className="group relative overflow-hidden rounded-[20px] border border-dashed border-[#CBD2DD] bg-[#FAFBFC] px-6 py-20 text-center">
-
-            <div className="pointer-events-none absolute right-7 top-5 text-[#7A61D8]/25 transition duration-500 group-hover:rotate-3 group-hover:scale-105">
-
-              <div className="relative flex h-20 w-20 items-center justify-center">
-
-                <span className="absolute left-0 top-4 h-1.5 w-1.5 rounded-full bg-current" />
-
-                <span className="absolute right-0 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-
-                <FileQuestion
-                  size={35}
-                  strokeWidth={1.05}
-                />
-
-              </div>
-
-            </div>
-
-            <div className="relative">
-
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F0EBFB] text-[#7A61D8] transition duration-300 group-hover:-rotate-3 group-hover:scale-105">
-
-                <FileQuestion
-                  size={22}
-                />
-
-              </div>
-
-              <h3 className="mt-5 text-lg font-semibold text-[#202938]">
-                No question banks found
-              </h3>
-
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#667085]">
-                No annual question bank matches the current search and filters.
-              </p>
-
-              {(search ||
-                yearFilter !==
-                  "all" ||
-                statusFilter !==
-                  "all") && (
-
-                <button
-                  type="button"
-                  onClick={
-                    clearFilters
-                  }
-                  className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#5658E8] px-4 py-2.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(86,88,232,0.15)] transition hover:-translate-y-0.5 hover:bg-[#4648C9]"
-                >
-                  Clear filters
-                  <ArrowRight
-                    size={13}
-                  />
-                </button>
-              )}
-
-            </div>
-
-          </section>
-
-        ) : (
-
-          <section className="grid gap-4 lg:grid-cols-2">
-
-            {filteredBanks.map(
-              (
-                bank,
-                index
-              ) => {
-
-                const status =
-                  getStatusConfig(
-                    bank.status
-                  );
-
-                const StatusIcon =
-                  status.icon;
-
-                const palette =
-                  JOB_BANK_PALETTE[
-                    index %
-                      JOB_BANK_PALETTE.length
-                  ];
-
-                return (
-                  <QuestionBankCard
-                    key={bank.id}
-                    bank={bank}
-                    index={index}
-                    palette={palette}
-                    status={status}
-                    StatusIcon={
-                      StatusIcon
-                    }
-                    formatDate={
-                      formatDate
-                    }
-                    isAssessmentManager={
-                      isAssessmentManager
-                    }
-                    onOpen={() =>
-                      openBank(
-                        bank
-                      )
-                    }
-                  />
-                );
-              }
-            )}
-
-          </section>
-        )}
-
-      </main>
+        </main>
     </RecruiterLayout>
   );
 }
@@ -1275,6 +1153,7 @@ function QuestionBankCard({
   StatusIcon,
   formatDate,
   isAssessmentManager,
+  isAssessmentReviewer = false,
   onOpen,
 }) {
   return (
@@ -1443,7 +1322,7 @@ function QuestionBankCard({
 
           </div>
 
-          {isAssessmentManager ? (
+          {(isAssessmentManager || isAssessmentReviewer) ? (
 
             <button
               type="button"
@@ -1451,7 +1330,7 @@ function QuestionBankCard({
               className="group/button inline-flex h-9 items-center gap-2 rounded-lg bg-[#5658E8] px-3.5 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(86,88,232,0.14)] transition duration-200 hover:-translate-y-0.5 hover:bg-[#4648C9] hover:shadow-[0_10px_21px_rgba(86,88,232,0.19)]"
             >
 
-              Open
+              {isAssessmentReviewer ? "Open Review" : "Open"}
 
               <ArrowRight
                 size={13}

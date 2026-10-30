@@ -87,12 +87,12 @@ def update_job_skills(
     skill_names: list[str],
     reviewer_id: int,
     skill_metadata: list[dict[str, Any]] | None = None,
+    confirm_immediately: bool = False,
 ) -> list[Skill]:
-    """Replace a job's skill list and persist each skill's recruiter decisions.
+    """Replace a job's skill list and persist its skill classifications.
 
-    ``skill_metadata`` is optional for backward compatibility with callers that
-    still submit only names. Those entries default to Technical + Mandatory.
-    Saving an edited skill list returns a previously confirmed review to pending.
+    Legacy callers keep the pending-review behavior by default. Trusted callers
+    such as the assessment manager may confirm the updated scope immediately.
     """
     normalized_names: list[str] = []
     seen: set[str] = set()
@@ -174,9 +174,14 @@ def update_job_skills(
 
         review = get_or_create_review(db, job.id)
 
-        review.status = "pending"
-        review.reviewed_by = None
-        review.reviewed_at = None
+        if confirm_immediately:
+            review.status = "confirmed"
+            review.reviewed_by = reviewer_id
+            review.reviewed_at = datetime.now(timezone.utc)
+        else:
+            review.status = "pending"
+            review.reviewed_by = None
+            review.reviewed_at = None
 
         db.commit()
 

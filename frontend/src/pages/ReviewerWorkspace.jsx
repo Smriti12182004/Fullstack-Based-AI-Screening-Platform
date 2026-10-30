@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
@@ -55,7 +55,19 @@ function LoadingPanel({ text = "Loading..." }) {
 
 function EmptyPanel({ title, description }) {
   return (
-    <div className="rounded-[18px] border border-dashed border-[#CBD2DD] bg-white p-10 text-center">
+    <div className="border p-10 text-center group relative isolate overflow-hidden transition-all duration-300 rounded-[20px] border-[#E3E6EB] bg-white px-6 py-8 shadow-[0_8px_24px_rgba(27,37,58,0.035)]">
+
+      <div
+        aria-hidden="true"
+        data-review-empty-doodle
+        className="pointer-events-none absolute right-5 top-5 hidden h-20 w-24 sm:block"
+      >
+        <div className="absolute right-1 top-1 h-14 w-14 rotate-12 rounded-2xl border border-[#7862C8]/20 transition-transform duration-700 group-hover:rotate-45" />
+        <div className="absolute right-4 top-4 h-9 w-9 rounded-full border border-dashed border-[#0F9D8A]/30" />
+        <span className="absolute right-6 top-7 h-2 w-2 rounded-full bg-[#7862C8]/50 animate-pulse" />
+        <span className="absolute right-0 top-3 h-1.5 w-1.5 rounded-full bg-[#0F9D8A]/60 animate-ping" />
+      </div>
+
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#F4F5F8] text-[#667085]">
         <ClipboardCheck size={20} />
       </div>
@@ -254,6 +266,9 @@ function getCompletedSetState(setItem) {
 }
 
 function ReviewerWorkspace() {
+  const location = useLocation();
+  const directOpenRef = useRef("");
+
   const navigate = useNavigate();
 
   const { logout } = useAuth();
@@ -262,6 +277,8 @@ function ReviewerWorkspace() {
     assessmentQueue,
     setAssessmentQueue,
   ] = useState([]);
+
+  const [queueLoaded, setQueueLoaded] = useState(false);
 
   const [
     completedQueue,
@@ -494,6 +511,8 @@ function ReviewerWorkspace() {
         data
       );
 
+      setQueueLoaded(true);
+
       return data;
     };
 
@@ -551,6 +570,11 @@ function ReviewerWorkspace() {
         );
       }
     };
+
+  const [hrRecipients, setHrRecipients] = useState([]);
+  const [selectedHrUserId, setSelectedHrUserId] = useState("");
+  const [hrRecipientsLoading, setHrRecipientsLoading] = useState(false);
+  const [hrRecipientsError, setHrRecipientsError] = useState("");
 
   const loadSet = async (
     assessmentSetId,
@@ -678,10 +702,10 @@ function ReviewerWorkspace() {
       );
 
       if (mode === "completed") {
-        if (!historyLoaded) {
+        if (!historyLoaded && !historyLoading) {
           await loadCompletedQueue();
         }
-      } else {
+      } else if (!queueLoaded) {
         try {
           await loadQueue();
         } catch (err) {
@@ -712,6 +736,14 @@ function ReviewerWorkspace() {
         setLoading(true);
         setError("");
 
+        // Prefetch history without blocking the initial pending queue.
+        loadCompletedQueue().catch((prefetchError) => {
+          console.error(
+            "Background completed-review prefetch failed:",
+            prefetchError
+          );
+        });
+
         await loadQueue();
       } catch (err) {
         console.error(
@@ -737,8 +769,124 @@ function ReviewerWorkspace() {
     };
 
   useEffect(() => {
+    let active = true;
+
+    const loadHrRecipients = async () => {
+      setHrRecipientsLoading(true);
+      setHrRecipientsError("");
+
+      try {
+        const response = await api.get(
+          "/assessment-reviews/hr-recipients"
+        );
+        const contacts = Array.isArray(response?.data)
+          ? response.data
+          : [];
+
+        if (active) {
+          setHrRecipients(contacts);
+          if (contacts.length === 0) {
+            setHrRecipientsError("No HR contacts are available.");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load HR contacts:", err);
+        if (active) {
+          setHrRecipientsError(
+            getErrorMessage(err, "Unable to load HR contacts.")
+          );
+        }
+      } finally {
+        if (active) {
+          setHrRecipientsLoading(false);
+        }
+      }
+    };
+
+    loadHrRecipients();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const savedRecipientId = selectedSet?.hr_contact?.id;
+
+    if (savedRecipientId !== null && savedRecipientId !== undefined) {
+      setSelectedHrUserId(String(savedRecipientId));
+      return;
+    }
+
+    if (hrRecipients.length > 0) {
+      setSelectedHrUserId((current) => {
+        const currentIsValid = hrRecipients.some(
+          (contact) => String(contact.id) === String(current)
+        );
+        return currentIsValid ? current : String(hrRecipients[0].id);
+      });
+    }
+  }, [
+    selectedSet?.assessment_set_id,
+    selectedSet?.hr_contact?.id,
+    hrRecipients,
+  ]);
+
+  useEffect(() => {
     loadWorkspace();
   }, []);
+
+  useEffect(() => {
+    const target = location.state;
+    const targetId = Number(target?.assessmentSetId);
+
+    if (
+      target?.source !== "question-bank-set" ||
+      !Number.isInteger(targetId) ||
+      targetId <= 0
+    ) {
+      return;
+    }
+
+    const key = `${location.key}:${targetId}`;
+    if (directOpenRef.current === key) return;
+    directOpenRef.current = key;
+
+    setActionError("");
+    setActionSuccess("");
+
+    setSelectedJob({
+      job_id: Number(target.jobId),
+      job_title: target.jobTitle || `Job ${target.jobId}`,
+      question_set_name: target.questionSetName || "Assessment",
+      sets: [],
+    });
+
+    // Open the actual assessment-set detail view, not an undefined stage.
+    setSelectedSet(null);
+    setSelectedSection(null);
+    setReviewMode(target.completed ? "completed" : "active");
+    setStage("set-detail");
+
+    const openTarget = async () => {
+      try {
+        if (target.completed) {
+          await loadCompletedSet(targetId);
+        } else {
+          await loadSet(targetId);
+        }
+      } catch (err) {
+        console.error("Failed to open selected assessment set:", err);
+        setActionError(
+          getErrorMessage(err, "Unable to open the selected assessment set.")
+        );
+      }
+    };
+
+    openTarget();
+    // Intentionally run when navigation enters this page with a direct-set target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
   const jobs = useMemo(
     () => {
@@ -1480,8 +1628,44 @@ function ReviewerWorkspace() {
       setActionSuccess("");
 
       try {
-        await api.post(
+        const approvalResponse = await api.post(
           `/questions/${id}/approve`
+        );
+
+        // Update the approved question immediately in both state objects.
+        // The open section is a snapshot derived from selectedSet and can
+        // otherwise keep rendering its stale pending_review status.
+        const approvedQuestion = {
+          ...question,
+          ...(approvalResponse.data || {}),
+          status: "approved",
+        };
+
+        const updateApprovedQuestion = (items) =>
+          Array.isArray(items)
+            ? items.map((item) =>
+                getQuestionId(item) === id
+                  ? { ...item, ...approvedQuestion }
+                  : item
+              )
+            : items;
+
+        setSelectedSet((current) =>
+          current
+            ? {
+                ...current,
+                questions: updateApprovedQuestion(current.questions),
+              }
+            : current
+        );
+
+        setSelectedSection((current) =>
+          current
+            ? {
+                ...current,
+                questions: updateApprovedQuestion(current.questions),
+              }
+            : current
         );
 
         setActionSuccess(
@@ -1719,6 +1903,10 @@ function ReviewerWorkspace() {
       }
     };
 
+  const selectedHrRecipient = hrRecipients.find(
+    (contact) => String(contact.id) === String(selectedHrUserId)
+  ) || selectedSet?.hr_contact || null;
+
   const sendSetToHr =
     async () => {
       const assessmentSetId =
@@ -1757,10 +1945,19 @@ function ReviewerWorkspace() {
         return;
       }
 
+      const selectedRecipient = hrRecipients.find(
+        (contact) => String(contact.id) === String(selectedHrUserId)
+      );
+
+      if (!selectedRecipient) {
+        setActionError("Choose an HR recipient before sending.");
+        return;
+      }
+
       const confirmed = window.confirm(
         `Send ${getSetLabel(
           selectedSet
-        )} to HR? The approved assessment will become available in the HR workspace for delivery configuration.`
+        )} to ${selectedRecipient.name} (${selectedRecipient.email})? The approved assessment will become available in that HR user's workspace.`
       );
 
       if (!confirmed) {
@@ -1773,7 +1970,8 @@ function ReviewerWorkspace() {
 
       try {
         const response = await api.post(
-          `/assessment-reviews/sets/${assessmentSetId}/send-to-hr`
+          `/assessment-reviews/sets/${assessmentSetId}/send-to-hr`,
+          { hr_user_id: selectedRecipient.id }
         );
 
         const handoff = response?.data || {};
@@ -2031,10 +2229,23 @@ function ReviewerWorkspace() {
       }`}
     >
       <div className="mx-auto max-w-[1500px] space-y-6 pb-12 text-[#202938]">
-        <section className="relative overflow-hidden rounded-[18px] border border-[#E3E6EB] bg-white px-5 py-6 shadow-[0_8px_24px_rgba(27,37,58,0.035)] sm:px-7 sm:py-7 lg:px-9">
-          <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-[#CFDEFC]/35 blur-[70px]" />
+        <section className="group relative isolate overflow-hidden rounded-[22px] border border-[#DFE2F1] bg-gradient-to-br from-white via-[#FCFBFF] to-[#F3FAF8] px-5 py-7 shadow-[0_12px_34px_rgba(27,37,58,0.045)] transition-shadow duration-300 hover:shadow-[0_16px_40px_rgba(86,88,232,0.07)] sm:px-8 sm:py-8 lg:px-10">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-[#DCD7FF]/30 blur-[65px]" />
+          <div aria-hidden="true" className="pointer-events-none absolute bottom-[-5rem] right-24 h-44 w-44 rounded-full bg-[#CFF3E8]/30 blur-[60px]" />
+          <div
+            aria-hidden="true"
+            data-review-hero-doodle
+            className="pointer-events-none absolute right-7 top-5 hidden h-24 w-32 sm:block"
+          >
+            <div className="absolute right-1 top-1 h-16 w-16 rotate-12 rounded-2xl border border-[#7862C8]/20 transition-transform duration-700 group-hover:rotate-45" />
+            <div className="absolute right-5 top-5 h-11 w-11 rounded-full border border-dashed border-[#0F9D8A]/30 transition-transform duration-700 group-hover:-rotate-12" />
+            <span className="absolute right-7 top-8 h-2 w-2 rounded-full bg-[#7862C8]/50 animate-pulse" />
+            <span className="absolute right-0 top-4 h-1.5 w-1.5 rounded-full bg-[#0F9D8A]/65 animate-ping" />
+            <span className="absolute right-24 top-14 h-1.5 w-1.5 rounded-full bg-[#7862C8]/55 animate-pulse" />
+            <div className="absolute right-0 top-[4.5rem] h-px w-8 rotate-[-24deg] bg-[#7862C8]/30" />
+          </div>
 
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#D9DEE7] bg-[#FAFBFC] px-3 py-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#5658E8]" />
@@ -2194,8 +2405,8 @@ function ReviewerWorkspace() {
                 </p>
               </div>
 
-              <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
-                <div className="inline-flex rounded-md border border-[#D4DAE4] bg-white p-1">
+              <div className="flex w-full flex-col gap-3 lg:w-auto lg:flex-row lg:items-center lg:justify-end lg:gap-3">
+                <div className="inline-grid w-full shrink-0 grid-cols-2 items-center gap-1 rounded-xl border border-[#E0E4EF] bg-[#F7F8FC] p-1.5 sm:w-auto">
                   <button
                     type="button"
                     onClick={() =>
@@ -2203,14 +2414,11 @@ function ReviewerWorkspace() {
                         "active"
                       )
                     }
-                    disabled={
-                      historyLoading
-                    }
-                    className={`inline-flex h-9 items-center justify-center gap-2 rounded px-3 text-xs font-semibold transition ${
+                    className={`inline-flex h-10 min-w-[145px] items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 text-xs font-semibold transition duration-200 ${
                       reviewMode ===
                       "active"
-                        ? "bg-[#5658E8] text-white"
-                        : "text-[#475467] hover:bg-[#F4F5F8]"
+                        ? "bg-[#5658E8] text-white shadow-[0_3px_8px_rgba(86,88,232,0.20)]"
+                        : "text-[#667085] hover:bg-white hover:text-[#5658E8]"
                     }`}
                   >
                     <ClipboardCheck
@@ -2228,14 +2436,11 @@ function ReviewerWorkspace() {
                         "completed"
                       )
                     }
-                    disabled={
-                      historyLoading
-                    }
-                    className={`inline-flex h-9 items-center justify-center gap-2 rounded px-3 text-xs font-semibold transition ${
+                    className={`inline-flex h-10 min-w-[145px] items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 text-xs font-semibold transition duration-200 ${
                       reviewMode ===
                       "completed"
-                        ? "bg-[#5658E8] text-white"
-                        : "text-[#475467] hover:bg-[#F4F5F8]"
+                        ? "bg-[#5658E8] text-white shadow-[0_3px_8px_rgba(86,88,232,0.20)]"
+                        : "text-[#667085] hover:bg-white hover:text-[#5658E8]"
                     }`}
                   >
                     {historyLoading ? (
@@ -2256,7 +2461,7 @@ function ReviewerWorkspace() {
                   </button>
                 </div>
 
-                <div className="relative w-full md:max-w-sm">
+                <div className="relative w-full min-w-0 lg:w-[320px] lg:shrink-0">
                   <Search
                     size={15}
                     className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98A2B3]"
@@ -2280,14 +2485,30 @@ function ReviewerWorkspace() {
                         ? "Search completed reviews..."
                         : "Search published jobs..."
                     }
-                    className="h-10 w-full rounded-md border border-[#D4DAE4] bg-white pl-10 pr-3 text-sm outline-none focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
+                    className="h-11 w-full rounded-xl border border-[#DDE2ED] bg-white pl-10 pr-3 text-sm outline-none transition placeholder:text-[#98A2B3] focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10"
                   />
                 </div>
               </div>
             </div>
 
-            {filteredJobs.length ===
-            0 ? (
+            {reviewMode === "completed" &&
+            historyLoading &&
+            filteredJobs.length === 0 ? (
+              <section
+                aria-live="polite"
+                className="flex min-h-[190px] flex-col items-center justify-center rounded-[20px] border border-[#E3E6EB] bg-white px-6 py-9 text-center shadow-[0_8px_24px_rgba(27,37,58,0.035)]"
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#F0EDFF] text-[#5658E8]">
+                  <RefreshCw size={19} className="animate-spin" />
+                </div>
+                <h3 className="mt-4 text-sm font-semibold text-[#202938]">
+                  Loading completed reviews
+                </h3>
+                <p className="mt-1.5 max-w-sm text-xs leading-5 text-[#667085]">
+                  Fetching your approved and rejected assessment sets.
+                </p>
+              </section>
+            ) : filteredJobs.length === 0 ? (
               <EmptyPanel
                 title={
                   reviewMode ===
@@ -3086,6 +3307,58 @@ function ReviewerWorkspace() {
                               : "The reviewer decision is complete. Hand the approved assessment to HR so HR can configure availability and candidate delivery."}
                           </p>
 
+                                                    <div className="mt-4 w-full max-w-xl rounded-2xl border border-[#DDE3F0] bg-white p-4 shadow-sm">
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#EEF0FF] text-sm font-bold text-[#5146D8]">
+                                {selectedHrRecipient?.name
+                                  ? selectedHrRecipient.name.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()
+                                  : "HR"}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#667085]">
+                                  {sentToHr ? "Sent to HR recipient" : "Choose HR recipient"}
+                                </p>
+                                <p className="mt-1 truncate text-sm font-semibold text-[#202938]">
+                                  {selectedHrRecipient?.name || "Select an HR contact"}
+                                </p>
+                                <p className="mt-0.5 break-all text-xs text-[#667085]">
+                                  {selectedHrRecipient?.email || "No recipient selected"}
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-full bg-[#EEF0FF] px-2.5 py-1 text-[10px] font-semibold text-[#5146D8]">
+                                {sentToHr ? "Sent" : "Recipient"}
+                              </span>
+                            </div>
+
+                            <label
+                              htmlFor="assessment-hr-recipient"
+                              className="mt-4 block text-xs font-semibold text-[#344054]"
+                            >
+                              Send assessment to
+                            </label>
+                            <select
+                              id="assessment-hr-recipient"
+                              value={selectedHrUserId}
+                              onChange={(event) => setSelectedHrUserId(event.target.value)}
+                              disabled={hrRecipientsLoading || hrRecipients.length === 0 || sentToHr || sendingToHrSetId !== null}
+                              className="mt-2 min-h-11 w-full rounded-xl border border-[#D0D5DD] bg-white px-3 text-sm text-[#202938] outline-none transition focus:border-[#5658E8] focus:ring-2 focus:ring-[#5658E8]/15 disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#667085]"
+                            >
+                              <option value="">
+                                {hrRecipientsLoading ? "Loading HR contacts..." : "Select an HR contact"}
+                              </option>
+                              {hrRecipients.map((contact) => (
+                                <option key={contact.id} value={String(contact.id)}>
+                                  {contact.name} — {contact.email}
+                                </option>
+                              ))}
+                            </select>
+                            {hrRecipientsError && !hrRecipientsLoading && (
+                              <p role="alert" className="mt-2 text-xs text-[#B42318]">
+                                {hrRecipientsError}
+                              </p>
+                            )}
+                          </div>
+
                           {sentToHr && selectedSet?.sent_to_hr_at && (
                             <p className="mt-2 text-xs font-semibold text-[#28734E]">
                               Sent to HR on {new Date(
@@ -3106,7 +3379,12 @@ function ReviewerWorkspace() {
                           <button
                             type="button"
                             onClick={sendSetToHr}
-                            disabled={sendingToHrSetId !== null}
+                            disabled={
+                              sendingToHrSetId !== null ||
+                              hrRecipientsLoading ||
+                              !selectedHrUserId ||
+                              hrRecipients.length === 0
+                            }
                             className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-[#5658E8] px-5 text-sm font-semibold text-white shadow-[0_7px_20px_rgba(86,88,232,0.18)] transition hover:bg-[#494BD8] disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
                           >
                             {sendingToHrSetId !== null ? (
@@ -3751,10 +4029,32 @@ function ReviewerWorkspace() {
                                 </p>
                               </div>
 
-                              {question.status ===
-                                "pending_review" &&
-                              reviewMode ===
-                                "active" ? (
+                              {question.status === "approved" && reviewMode === "active" ? (
+                                <div className="mt-5">
+                                  <button
+                                    type="button"
+                                    disabled
+                                    aria-label="Question approved"
+                                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-[#28734E] text-sm font-semibold text-white opacity-90 cursor-default"
+                                  >
+                                    <CheckCircle2 size={16} />
+                                    Approved
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRejectingQuestion(question);
+                                      setRejectionReason("");
+                                      setActionError("");
+                                    }}
+                                    disabled={busy}
+                                    className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-[#D9B5B5] bg-white text-sm font-semibold text-[#A83E3E] disabled:opacity-60"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : question.status === "pending_review" &&
+                              reviewMode === "active" ? (
                                 <div className="mt-5">
                                   <button
                                     type="button"

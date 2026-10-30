@@ -1357,9 +1357,9 @@ def reject_question(
             "Question not found."
         )
 
-    if question.status != "pending_review":
+    if question.status not in {"pending_review", "approved"}:
         raise QuestionServiceError(
-            "Only questions pending review can be rejected."
+            "Only questions pending review or approved questions can be rejected."
         )
 
     if question.created_by == reviewer_id:

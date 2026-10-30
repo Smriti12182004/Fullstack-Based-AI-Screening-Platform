@@ -222,7 +222,7 @@ function Login() {
           username,
           email,
           password,
-          role,
+          role: "candidate",
         }
       );
 
@@ -503,39 +503,9 @@ function Login() {
               </div>
 
               {isRegistering && (
-                <div>
-                  <label
-                    htmlFor="role"
-                    className="mb-2.5 block text-xs font-semibold text-[#344054]"
-                  >
-                    Account type
-                  </label>
-
-                  <div className="relative">
-                    <UserPlus
-                      size={17}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-[#98A2B3]"
-                    />
-
-                    <select
-                      id="role"
-                      value={role}
-                      onChange={(event) =>
-                        setRole(event.target.value)
-                      }
-                      className="h-[52px] w-full appearance-none rounded-xl border border-[#D6DAE3] bg-[#FBFCFE] pl-11 pr-4 text-sm text-[#182033] outline-none transition duration-200 focus:border-[#5658E8] focus:bg-white focus:ring-4 focus:ring-[#5658E8]/10"
-                    >
-                      {ROLE_OPTIONS.map((option) => (
-                        <option
-                          key={option.value}
-                          value={option.value}
-                        >
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                <p className="rounded-xl border border-[#D6DAE3] bg-[#FBFCFE] px-4 py-3 text-sm leading-6 text-[#667085]">
+                  Public signup creates candidate accounts. Other roles must be assigned by an organization administrator.
+                </p>
               )}
 
               <div>

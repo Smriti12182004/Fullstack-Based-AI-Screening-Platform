@@ -146,24 +146,52 @@ def _ensure_reviewer_access(
 def _get_hr_user(
     db: Session,
     job: Job,
+    hr_user_id: int | None = None,
 ) -> User:
-    """Resolve the HR/recruiter who owns the job."""
+    """Resolve and validate the selected HR/recruiter."""
+
+    selected_user_id = job.created_by if hr_user_id is None else int(hr_user_id)
 
     hr_user = (
         db.query(User)
         .filter(
-            User.id == job.created_by,
+            User.id == selected_user_id,
             User.role == "recruiter",
         )
         .first()
     )
 
     if hr_user is None:
-        raise AssessmentSetHRHandoffServiceError(
-            "The HR owner for this job could not be found."
-        )
+        if hr_user_id is None:
+            message = "The HR owner for this job could not be found."
+        else:
+            message = (
+                "The selected HR recipient could not be found "
+                "or is not a recruiter."
+            )
+        raise AssessmentSetHRHandoffServiceError(message)
 
     return hr_user
+
+
+def list_hr_recipients(db: Session) -> list[dict]:
+    """List available recruiter accounts for reviewer handoff selection."""
+
+    users = (
+        db.query(User)
+        .filter(User.role == "recruiter")
+        .order_by(User.full_name.asc(), User.username.asc())
+        .all()
+    )
+
+    return [
+        {
+            "id": user.id,
+            "name": user.full_name or user.username,
+            "email": user.email,
+        }
+        for user in users
+    ]
 
 
 def _get_existing_assessment(
@@ -281,6 +309,11 @@ def _build_response(
         "sent_to_hr_by": assessment_set.sent_to_hr_by,
         "sent_to_hr_at": assessment_set.sent_to_hr_at,
         "hr_user_id": hr_user.id,
+        "hr_contact": {
+            "id": hr_user.id,
+            "name": hr_user.full_name or hr_user.username,
+            "email": hr_user.email,
+        },
         "message": "Assessment sent to HR successfully.",
     }
 
@@ -289,6 +322,7 @@ def send_assessment_set_to_hr(
     db: Session,
     assessment_set_id: int,
     reviewer_id: int,
+    hr_user_id: int | None = None,
 ) -> dict:
     """
     Hand one approved AssessmentSet from the reviewer to HR.
@@ -326,11 +360,6 @@ def send_assessment_set_to_hr(
             "Only approved assessment sets can be sent to HR."
         )
 
-    hr_user = _get_hr_user(
-        db=db,
-        job=job,
-    )
-
     # ------------------------------------------------------------------
     # IDEMPOTENT REPEAT HANDOFF
     # ------------------------------------------------------------------
@@ -352,6 +381,14 @@ def send_assessment_set_to_hr(
                 "This AssessmentSet has already been handed off to HR."
             )
 
+        existing_hr_user = _get_hr_user(
+            db=db,
+            job=job,
+            hr_user_id=(
+                assessment_set.sent_to_hr_user_id or job.created_by
+            ),
+        )
+
         assessment = _get_existing_assessment(
             db=db,
             assessment_set=assessment_set,
@@ -366,8 +403,14 @@ def send_assessment_set_to_hr(
         return _build_response(
             assessment_set=assessment_set,
             assessment=assessment,
-            hr_user=hr_user,
+            hr_user=existing_hr_user,
         )
+
+    hr_user = _get_hr_user(
+        db=db,
+        job=job,
+        hr_user_id=hr_user_id,
+    )
 
     # ------------------------------------------------------------------
     # MATERIALIZE / REUSE CANDIDATE-FACING ASSESSMENT
@@ -382,6 +425,7 @@ def send_assessment_set_to_hr(
     # PERSIST HANDOFF + HR NOTIFICATION
     # ------------------------------------------------------------------
 
+    assessment_set.sent_to_hr_user_id = hr_user.id
     assessment_set.sent_to_hr_by = reviewer_id
     assessment_set.sent_to_hr_at = utc_now()
 

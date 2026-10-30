@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Literal
 
+from rq.job import Job, NoSuchJobError
+from app.queue.assessment_generation_queue import enqueue_assessment_generation, get_redis_connection
+
 from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
 from app.models import QuestionSet
@@ -348,24 +351,14 @@ def generate_question_batch_for_slot(
     slot_id: int,
     count: int = Query(default=5, ge=1, le=50),
     payload: GenerationBatchRequest = Body(default=GenerationBatchRequest()),
-    db: Session = Depends(get_db),
     current_user: dict = Depends(require_role("assessment_manager")),
 ):
-    """Generate a validated AI candidate batch synchronously.
-
-    Question generation is owned entirely by the existing authoring service.
-    The endpoint calls that service directly instead of using Redis/RQ, so the
-    API response contains the generated candidates and persisted generation
-    attempts once the batch completes.
-    """
+    """Queue long-running AI generation and return immediately."""
+    normalized_prompt = (
+        " ".join(str(payload.manager_prompt or "").strip().split()) or None
+    )
     try:
-        normalized_prompt = (
-            " ".join(str(payload.manager_prompt or "").strip().split())
-            or None
-        )
-
-        return generate_slot_question_batch(
-            db=db,
+        job = enqueue_assessment_generation(
             slot_id=slot_id,
             user_id=current_user["user_id"],
             count=count,
@@ -373,23 +366,59 @@ def generate_question_batch_for_slot(
             generation_strategy=payload.generation_strategy,
             generation_focus=payload.generation_focus,
         )
-    except ValueError as exc:
-        raise _handle(exc) from exc
-    except LLMConnectionError as exc:
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Question generation is temporarily unavailable: {exc}",
+            detail="Could not queue AI generation. Check Redis and the RQ worker.",
         ) from exc
-    except LLMResponseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Question generation response could not be validated: {exc}",
-        ) from exc
-    except LLMServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Question generation service failed: {exc}",
-        ) from exc
+
+    return {
+        "job_id": job.id,
+        "status": "queued",
+        "requested_count": count,
+    }
+
+
+@router.get("/generation-jobs/{job_id}")
+def get_assessment_generation_job_status(
+    job_id: str,
+    current_user: dict = Depends(require_role("assessment_manager")),
+):
+    """Return job status only to the manager who requested the job."""
+    connection = get_redis_connection()
+    try:
+        try:
+            job = Job.fetch(job_id, connection=connection)
+        except NoSuchJobError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Generation job not found or expired.",
+            ) from exc
+
+        if str((job.meta or {}).get("user_id")) != str(current_user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not allowed to view this generation job.",
+            )
+
+        raw_status = job.get_status(refresh=True)
+        job_status = str(getattr(raw_status, "value", raw_status)).lower()
+        response = {
+            "job_id": job.id,
+            "status": job_status,
+            "progress": (job.meta or {}).get("progress"),
+        }
+
+        if job_status == "finished":
+            response["result"] = job.result
+        elif job_status in {"failed", "stopped", "canceled"}:
+            response["error"] = (
+                "AI generation failed or was stopped. Check backend worker logs."
+            )
+
+        return response
+    finally:
+        connection.close()
 
 
 @router.post("/slots/{slot_id}/attempts/{attempt_id}/accept")

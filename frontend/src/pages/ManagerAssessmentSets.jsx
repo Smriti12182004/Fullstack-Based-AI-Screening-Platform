@@ -156,6 +156,8 @@ function ManagerAssessmentSets() {
 
   const [candidateReview, setCandidateReview] = useState(null);
   const [candidatePool, setCandidatePool] = useState(null);
+  const [liveGenerationCandidates, setLiveGenerationCandidates] = useState([]);
+  const [generationProgress, setGenerationProgress] = useState(null);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidatePattern, setCandidatePattern] = useState("all");
   const [candidateLength, setCandidateLength] = useState("all");
@@ -1194,26 +1196,134 @@ function ManagerAssessmentSets() {
       );
     };
 
+    let stopCandidatePolling = false;
+
     try {
       setError("");
       setSuccess("");
+      setLiveGenerationCandidates([]);
       setGeneratingSlotId(slot.id);
       setGenerationStartedAt(Date.now());
 
+        // Poll the saved attempts while the generation POST is still pending.
+        const fallbackAttempts = Array.isArray(slot?.generation_attempts)
+          ? slot.generation_attempts
+          : [];
+        const baselineResponse = await api.get(
+          `/assessment-authoring/slots/${slot.id}/attempts`
+        ).catch(() => ({ data: fallbackAttempts }));
+
+        const baselineAttempts = Array.isArray(baselineResponse.data)
+          ? baselineResponse.data
+          : fallbackAttempts;
+        const knownAttemptIds = new Set(
+          [...baselineAttempts, ...fallbackAttempts]
+            .map((attempt) => attempt?.id)
+            .filter((id) => id != null)
+        );
+
+        let hasShownReview = false;
+        const pollSavedAttempts = async () => {
+          while (!stopCandidatePolling) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            if (stopCandidatePolling) return;
+
+            try {
+              const attemptsResponse = await api.get(
+                `/assessment-authoring/slots/${slot.id}/attempts`
+              );
+              if (stopCandidatePolling) return;
+
+              const savedAttempts = Array.isArray(attemptsResponse.data)
+                ? attemptsResponse.data
+                : [];
+              const newAttempts = savedAttempts.filter(
+                (attempt) =>
+                  attempt?.id != null &&
+                  !knownAttemptIds.has(attempt.id)
+              );
+
+              if (newAttempts.length === 0) continue;
+              newAttempts.forEach((attempt) => knownAttemptIds.add(attempt.id));
+
+              setLiveGenerationCandidates((current) => {
+                const ids = new Set(
+                  current.map((item) => item?.id).filter((id) => id != null)
+                );
+                const additions = newAttempts.filter(
+                  (item) => item?.id != null && !ids.has(item.id)
+                );
+                return [...current, ...additions].sort(
+                  (a, b) =>
+                    Number(a?.attempt_number || 0) -
+                    Number(b?.attempt_number || 0)
+                );
+              });
+
+              if (!hasShownReview) {
+                hasShownReview = true;
+                // Keep the Configure AI modal open.
+                setCandidateSearch("");
+                setCandidatePattern("all");
+                setCandidateLength("all");
+                setCandidateSort("newest");
+                setCandidatePromptDraft(normalizedPrompt);
+                setError("");
+                setSuccess(
+                  "New saved AI candidates are available for review. Generation may still be processing."
+                );
+              }
+            } catch (pollError) {
+              console.warn("Could not poll saved AI candidates yet:", pollError);
+            }
+          }
+        };
+
+        void pollSavedAttempts();
       const response = await api.post(
         `/assessment-authoring/slots/${slot.id}/generate-batch?count=${normalizedCount}`,
         {
-          manager_prompt:
-            normalizedPrompt || null,
-          generation_strategy:
-            generationStrategy,
-          generation_focus:
-            generationFocus,
+          manager_prompt: normalizedPrompt || null,
+          generation_strategy: generationStrategy,
+          generation_focus: generationFocus,
         }
       );
-
-      const batchData =
-        response.data || {};
+      let batchData = response.data || {};
+      if (batchData.job_id) {
+        const jobId = batchData.job_id;
+        const deadline = Date.now() + 30 * 60 * 1000;
+        let completed = false;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          const statusResponse = await api.get(
+            `/assessment-authoring/generation-jobs/${encodeURIComponent(jobId)}`
+          );
+          const jobData = statusResponse.data || {};
+          const jobStatus = String(jobData.status || "").toLowerCase();
+          setGenerationProgress(
+            jobData.progress || {
+              stage: jobStatus,
+              message: jobStatus === "queued"
+                ? "Waiting for a generation worker..."
+                : `Generation job status: ${jobStatus}`,
+              generated_count: 0,
+              requested_count: normalizedCount,
+            }
+          );
+          if (jobStatus === "finished") {
+            batchData = jobData.result || {};
+            completed = true;
+            break;
+          }
+          if (["failed", "stopped", "canceled"].includes(jobStatus)) {
+            throw new Error(jobData.error || "AI generation failed.");
+          }
+        }
+        if (!completed) {
+          throw new Error("Generation is taking longer than expected. Check saved candidates before retrying.");
+        }
+      }
+      stopCandidatePolling = true;
 
       const requested = Number(
         batchData.requested_count ||
@@ -1253,6 +1363,7 @@ function ManagerAssessmentSets() {
         );
       }
     } catch (err) {
+      stopCandidatePolling = true;
       console.error(
         "Failed to generate question batch:",
         err
@@ -1262,6 +1373,51 @@ function ManagerAssessmentSets() {
         return;
       }
 
+      // Recover candidates already saved when generation times out or fails.
+      try {
+        const attemptsResponse = await api.get(
+          `/assessment-authoring/slots/${slot.id}/attempts`
+        );
+        const recoveredAttempts = Array.isArray(attemptsResponse.data)
+          ? attemptsResponse.data
+          : [];
+
+        if (recoveredAttempts.length > 0) {
+          setGenerationRequest(null);
+          setCandidateSearch("");
+          setCandidatePattern("all");
+          setCandidateLength("all");
+          setCandidateSort("newest");
+          setCandidatePromptDraft(normalizedPrompt);
+
+          updateCandidatePoolFromBatch(
+            {
+              slot,
+              attempts: recoveredAttempts,
+              requested_count: normalizedCount,
+              generated_count: recoveredAttempts.length,
+              manager_prompt: normalizedPrompt || null,
+              generation_strategy: generationStrategy,
+              generation_focus: generationFocus,
+              warning:
+                "The request failed or timed out. Saved candidates were recovered; batch completion is not confirmed.",
+            },
+            slot
+          );
+
+          setError("");
+          setSuccess(
+            `Recovered ${recoveredAttempts.length} saved AI candidate(s). Batch completion is not confirmed.`
+          );
+          return;
+        }
+      } catch (recoveryError) {
+        console.error(
+          "Failed to recover saved AI candidates:",
+          recoveryError
+        );
+      }
+
       setError(
         getErrorMessage(
           err,
@@ -1269,6 +1425,7 @@ function ManagerAssessmentSets() {
         )
       );
     } finally {
+      stopCandidatePolling = true;
       setGeneratingSlotId(null);
       setGenerationStartedAt(null);
     }
@@ -3172,6 +3329,13 @@ function ManagerAssessmentSets() {
                 .slot?.id
             }
             generationStartedAt={generationStartedAt}
+            liveGenerationCandidates={liveGenerationCandidates}
+            onReviewLiveCandidate={(attempt) =>
+              setCandidateReview({
+                slot: generationRequest.slot,
+                attempt,
+              })
+            }
           />
         </Modal>
       )}
@@ -3226,6 +3390,7 @@ function ManagerAssessmentSets() {
             <GenerationProgressPanel
               key={generationStartedAt}
               startedAt={generationStartedAt}
+              progress={typeof generationProgress === 'undefined' ? null : generationProgress}
               compact
             />
           )}
@@ -4553,7 +4718,7 @@ function generationFocusLabel(
   );
 }
 
-function GenerationProgressPanel({ startedAt, compact = false }) {
+function GenerationProgressPanel({ startedAt, progress, compact = false }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
@@ -4622,7 +4787,7 @@ function GenerationProgressPanel({ startedAt, compact = false }) {
               aria-live="polite"
               className="text-xs font-bold text-[#3E378A]"
             >
-              AI question generation is in progress
+              {progress?.message || "AI question generation is in progress"}
             </p>
             <span className="rounded-full border border-[#E2DDF8] bg-white px-2.5 py-1 text-[10px] font-semibold tabular-nums text-[#5146B2]">
               Elapsed {elapsedLabel}
@@ -4687,6 +4852,8 @@ function GenerationSettingsForm({
   onCancel,
   generating,
   generationStartedAt,
+  liveGenerationCandidates = [],
+  onReviewLiveCandidate,
 }) {
   const selectedType =
     slot?.preferred_question_type ||
@@ -4836,7 +5003,68 @@ function GenerationSettingsForm({
         <GenerationProgressPanel
           key={generationStartedAt}
           startedAt={generationStartedAt}
+          progress={typeof generationProgress === 'undefined' ? null : generationProgress}
         />
+      )}
+
+      {liveGenerationCandidates.length > 0 && (
+        <section className="rounded-xl border border-[#D8D1FF] bg-[#FBFAFF] p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-xs font-bold text-[#3E378A]">
+              {liveGenerationCandidates.length} candidate{liveGenerationCandidates.length === 1 ? "" : "s"} generated so far
+            </p>
+            <span className="rounded-full border border-[#D8D1FF] bg-white px-2 py-1 text-[10px] font-semibold text-[#5146B2]">
+              Live preview
+            </span>
+          </div>
+          <div className="max-h-72 space-y-3 overflow-y-auto">
+            {liveGenerationCandidates.map((attempt, index) => (
+              <article
+                key={attempt.id ?? `${attempt.attempt_number ?? "live"}-${index}`}
+                className="rounded-lg border border-[#E7E3FA] bg-white p-3"
+              >
+                <p className="mb-2 text-[10px] font-semibold text-[#6658D7]">
+                  Candidate {index + 1}
+                </p>
+                <p className="whitespace-pre-wrap text-xs leading-5 text-[#344054]">
+                  {attempt.question_text || "Question text is not available yet."}
+                </p>
+                {Array.isArray(attempt.options) && attempt.options.length > 0 && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {attempt.options.map((option, optionIndex) => {
+                      const text =
+                        typeof option === "string"
+                          ? option
+                          : option?.text ?? option?.label ?? option?.value ?? JSON.stringify(option);
+                      return (
+                        <div
+                          key={`${attempt.id ?? index}-option-${optionIndex}`}
+                          className="flex items-start gap-2 rounded-md border border-[#EEF0F5] p-2 text-[11px] leading-4 text-[#475467]"
+                        >
+                          <span className="font-semibold text-[#6658D7]">
+                            {String.fromCharCode(65 + optionIndex)}.
+                          </span>
+                          <span>{text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => onReviewLiveCandidate?.(attempt)}
+                    disabled={!attempt?.id}
+                    className="inline-flex items-center justify-center rounded-lg bg-[#6658D7] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#584BC7] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Review &amp; use question
+                  </button>
+                </div>
+</article>
+            ))}
+          </div>
+        </section>
       )}
 
       <div>

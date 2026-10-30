@@ -16,6 +16,7 @@ import {
   FileQuestion,
   ArrowRight,
   X,
+  Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -300,6 +301,7 @@ function Topbar({
   });
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
+  const [accountDeleting, setAccountDeleting] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
   const [profilePhotoVersion, setProfilePhotoVersion] = useState(0);
@@ -407,6 +409,40 @@ function Topbar({
       setProfileSaving(false);
     }
   };
+
+  const handleDeleteMyAccount = async () => {
+    const confirmed = window.confirm(
+      "Permanently delete your Evalyn account?\n\n" +
+      "This cannot be undone. Linked assessment, access, or audit records " +
+      "may cause deletion to be blocked so that historical data is preserved.\n\n" +
+      "Continue with account deletion?"
+    );
+
+    if (!confirmed) return;
+
+    setAccountDeleting(true);
+    setProfileError("");
+
+    try {
+      await api.delete("/auth/me");
+      setProfileEditorOpen(false);
+      logout();
+      navigate("/login", {
+        replace: true,
+        state: { accountDeleted: true },
+      });
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      setProfileError(
+        typeof detail === "string"
+          ? detail
+          : "Unable to delete your account. Please try again."
+      );
+    } finally {
+      setAccountDeleting(false);
+    }
+  };
+
   const handleProfilePhotoChange = async (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -1893,6 +1929,30 @@ function Topbar({
                       Profile saved successfully.
                     </p>
                   )}
+                  <section className="rounded-xl border border-[#F0CACA] bg-[#FFF8F7] p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#B42318]">
+                        Delete my account
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-[#7A271A]">
+                        Permanently remove your account. If it has linked assessment,
+                        access, or audit records, the request will be blocked to
+                        preserve that history.
+                      </p>
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleDeleteMyAccount}
+                        disabled={accountDeleting || profileSaving || profilePhotoBusy}
+                        className="inline-flex items-center gap-2 rounded-xl border border-[#F0CACA] bg-white px-4 py-2.5 text-sm font-semibold text-[#B42318] hover:bg-[#FFF1F0] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Trash2 size={15} />
+                        {accountDeleting ? "Deleting account..." : "Delete my account"}
+                      </button>
+                    </div>
+                  </section>
+
                   <div className="flex justify-end gap-2 border-t border-[#EDF1F4] pt-4">
                     <button
                       type="button"

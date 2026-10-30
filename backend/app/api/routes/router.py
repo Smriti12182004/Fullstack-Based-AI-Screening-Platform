@@ -29,6 +29,8 @@ from app.api.routes.sections import router as sections_router
 from app.api.routes.skills import router as skills_router
 
 
+from app.api.routes.ecompass import router as ecompass_router
+
 api_router = APIRouter()
 
 api_router.include_router(health_router)
@@ -50,3 +52,4 @@ api_router.include_router(question_sets_router)
 api_router.include_router(sections_router)
 api_router.include_router(question_set_configurations_router)
 api_router.include_router(skills_router)
+api_router.include_router(ecompass_router)

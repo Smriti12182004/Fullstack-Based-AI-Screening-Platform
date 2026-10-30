@@ -1362,14 +1362,12 @@ function JobDetails() {
                   >
                     <option value="">Select Assessment Manager</option>
                     {collaborators
-                      .filter(
-                        (user) => user.role === "assessment_manager"
-                      )
-                      .map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.username} — {user.email}
-                        </option>
-                      ))}
+  .filter((user) => user.role === "assessment_manager")
+  .map((user) => (
+    <option key={user.id} value={user.id}>
+      {user.username || user.email}
+    </option>
+  ))}
                   </select>
                 </label>
 
@@ -1387,14 +1385,12 @@ function JobDetails() {
                   >
                     <option value="">Select Assessment Reviewer</option>
                     {collaborators
-                      .filter(
-                        (user) => user.role === "assessment_reviewer"
-                      )
-                      .map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.username} — {user.email}
-                        </option>
-                      ))}
+  .filter((user) => user.role === "assessment_reviewer")
+  .map((user) => (
+    <option key={user.id} value={user.id}>
+      {user.username || user.email}
+    </option>
+  ))}
                   </select>
                 </label>
               </div>

@@ -144,6 +144,33 @@ function Jobs() {
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const statusFilterOptions = [
+    {
+      value: "all",
+      label: "All statuses",
+      description: "Show every job",
+      dotClass: "bg-[#98A2B3]",
+    },
+    {
+      value: "pending",
+      label: "Pending",
+      description: "The workflow has not started",
+      dotClass: "bg-[#D97706]",
+    },
+    {
+      value: "in_progress",
+      label: "In Progress",
+      description: "Setup, candidate submissions or scoring",
+      dotClass: "bg-[#7A61D8]",
+    },
+    {
+      value: "completed",
+      label: "Completed",
+      description: "All assigned candidates submitted and scored",
+      dotClass: "bg-[#16A34A]",
+    },
+  ];
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -240,9 +267,6 @@ function Jobs() {
   };
 
   const filteredJobs = useMemo(() => {
-    const now = Date.now();
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
     const query = search.trim().toLowerCase();
 
     return jobs
@@ -261,19 +285,12 @@ function Jobs() {
           description.includes(query) ||
           id.includes(query);
 
-        const createdAt = job.created_at
-          ? new Date(job.created_at).getTime()
-          : 0;
-
-        const age = createdAt
-          ? now - createdAt
-          : Number.POSITIVE_INFINITY;
+        const workflowStatus = String(
+          job.workflow_status || "pending"
+        ).toLowerCase();
 
         const matchesFilter =
-          filter === "all" ||
-          (filter === "recent7" && age <= sevenDays) ||
-          (filter === "recent30" && age <= thirtyDays) ||
-          (filter === "older" && age > thirtyDays);
+          filter === "all" || filter === workflowStatus;
 
         return matchesSearch && matchesFilter;
       });
@@ -713,6 +730,7 @@ function Jobs() {
           </div>
         </section>
 
+
         {/* ERROR */}
 
         {error && (
@@ -783,16 +801,74 @@ function Jobs() {
                     Filter
                   </span>
 
-                  <select
-                    value={filter}
-                    onChange={(event) => setFilter(event.target.value)}
-                    className="h-8 border-0 bg-transparent text-xs font-semibold text-[#344054] outline-none"
-                  >
-                    <option value="all">All jobs</option>
-                    <option value="recent7">Last 7 days</option>
-                    <option value="recent30">Last 30 days</option>
-                    <option value="older">Older jobs</option>
-                  </select>
+<div className="relative">
+                    <button
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={filterOpen}
+                      onClick={() => setFilterOpen((open) => !open)}
+                      className="inline-flex h-8 min-w-[142px] items-center justify-between gap-3 rounded-lg border border-[#E4E7EC] bg-white px-2.5 text-xs font-semibold text-[#344054] transition hover:border-[#A9A4F5] hover:bg-[#FAF9FF] focus:outline-none focus:ring-2 focus:ring-[#7A61D8]/20"
+                    >
+                      <span>
+                        {statusFilterOptions.find((option) => option.value === filter)?.label || "All statuses"}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`text-[#667085] transition-transform duration-200 ${filterOpen ? "rotate-180" : ""}`}
+                      >
+                        ▾
+                      </span>
+                    </button>
+
+                    {filterOpen && (
+                      <div
+                        role="menu"
+                        aria-label="Filter jobs by status"
+                        className="absolute right-0 top-full z-50 mt-2 w-[290px] rounded-xl border border-[#E5E7EF] bg-white p-1.5 shadow-[0_14px_36px_rgba(31,35,70,0.14)]"
+                      >
+                        <p className="px-3 pb-2 pt-2 text-[9px] font-bold uppercase tracking-[0.15em] text-[#98A2B3]">
+                          Filter jobs by status
+                        </p>
+                        {statusFilterOptions.map((option) => {
+                          const selected = filter === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              role="menuitemradio"
+                              aria-checked={selected}
+                              onClick={() => {
+                                setFilter(option.value);
+                                setFilterOpen(false);
+                              }}
+                              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-150 ${
+                                selected
+                                  ? "bg-[#F3F1FF]"
+                                  : "bg-white hover:bg-[#F8F9FC]"
+                              }`}
+                            >
+                              <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${option.dotClass}`} />
+                              <span className="min-w-0 flex-1">
+                                <span className={`block text-xs font-semibold ${
+                                  selected ? "text-[#5658E8]" : "text-[#344054]"
+                                }`}>
+                                  {option.label}
+                                </span>
+                                <span className="mt-0.5 block text-[10px] leading-4 text-[#7B8496]">
+                                  {option.description}
+                                </span>
+                              </span>
+                              {selected && (
+                                <span className="text-xs font-bold text-[#5658E8]" aria-hidden="true">
+                                  ✓
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+</div>
                 </div>
 
                 {(search || filter !== "all") && (
@@ -1114,7 +1190,13 @@ function JobCard({
           <MetaCard
             icon={<CheckCircle2 size={13} />}
             label="Status"
-            value="Created"
+            value={
+              job.workflow_status === "completed"
+                ? "Completed"
+                : job.workflow_status === "in_progress"
+                  ? "In Progress"
+                  : "Pending"
+            }
             background="#E5F7F3"
             color="#28734E"
           />

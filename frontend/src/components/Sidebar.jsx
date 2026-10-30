@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   Archive,
   BriefcaseBusiness,
+  BookOpen,
   CircleHelp,
   ClipboardCheck,
   ClipboardList,
@@ -52,12 +53,7 @@ function Sidebar() {
         icon: BriefcaseBusiness,
         accent: "screen",
       },
-      {
-        name: "Assessment Sets",
-        path: "/question-banks",
-        icon: Archive,
-        accent: "prepare",
-      },
+
       {
         name: "Assessments",
         path: "/assessments",
@@ -69,6 +65,12 @@ function Sidebar() {
         path: "/proctoring/activity",
         icon: ShieldCheck,
         accent: "content",
+      },
+      {
+        name: "My Handbook",
+        path: "/handbook",
+        icon: BookOpen,
+        accent: "review",
       },
     ],
 
@@ -103,6 +105,12 @@ function Sidebar() {
         icon: ShieldCheck,
         accent: "review",
       },
+      {
+        name: "My Handbook",
+        path: "/handbook",
+        icon: BookOpen,
+        accent: "review",
+      },
     ],
 
     assessment_reviewer: [
@@ -122,6 +130,12 @@ function Sidebar() {
         name: "Assessment Review",
         path: "/review",
         icon: ClipboardCheck,
+        accent: "review",
+      },
+      {
+        name: "My Handbook",
+        path: "/handbook",
+        icon: BookOpen,
         accent: "review",
       },
     ],

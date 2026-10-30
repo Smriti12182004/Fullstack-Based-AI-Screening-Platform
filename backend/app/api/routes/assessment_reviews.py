@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import require_role
 from app.db.session import get_db
+
+from app.models.assessment_set import AssessmentSet
+from app.models.job import Job
+from app.models.job_assessment_access import JobAssessmentAccess
+from app.models.question_set import QuestionSet
 from app.schemas.assessment import AssessmentResponse
 from app.schemas.assessment_review import (
     AssessmentReviewDecisionRequest,
     AssessmentReviewPackage,
     AssessmentReviewQueueItem,
+    AssessmentSetHRHandoffRequest,
+    AssessmentSetReviewHRContact,
     AssessmentSetReviewPackage,
     AssessmentSetReviewQueueItem,
 )
@@ -27,6 +34,7 @@ from app.services.assessment_set_review_history_service import (
 )
 from app.services.assessment_set_hr_handoff_service import (
     AssessmentSetHRHandoffServiceError,
+    list_hr_recipients,
     send_assessment_set_to_hr,
 )
 from app.services.assessment_set_review_service import (
@@ -65,6 +73,20 @@ def get_assessment_review_queue(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/hr-recipients",
+    response_model=list[AssessmentSetReviewHRContact],
+)
+def get_assessment_set_hr_recipients(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(
+        require_role("assessment_reviewer")
+    ),
+):
+    """List recruiter accounts available for the reviewer handoff."""
+    return list_hr_recipients(db)
 
 
 @router.get(
@@ -168,6 +190,124 @@ def reject_assessment_review(
 # ---------------------------------------------------------------------------
 # ASSESSMENT SET REVIEW ROUTES
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/jobs/{job_id}/sets",
+)
+def get_reviewer_job_assessment_sets(
+    job_id: int,
+    hiring_year: int | None = Query(default=None, ge=2020, le=2100),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role("assessment_reviewer")),
+):
+    """
+    Return the assessment blueprints and their generated variants for one
+    job assigned to this reviewer. In-progress variants are visible as
+    status only; the detailed review endpoint remains submission-gated.
+    """
+    job = db.get(Job, job_id)
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found.",
+        )
+
+    assigned = (
+        db.query(JobAssessmentAccess.id)
+        .filter(
+            JobAssessmentAccess.job_id == job_id,
+            JobAssessmentAccess.user_id == current_user["user_id"],
+        )
+        .first()
+    )
+
+    if assigned is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to review assessment sets for this job.",
+        )
+
+    question_set_query = db.query(QuestionSet).filter(
+        QuestionSet.job_id == job_id
+    )
+
+    if hiring_year is not None:
+        question_set_query = question_set_query.filter(
+            QuestionSet.hiring_year == hiring_year
+        )
+
+    question_sets = (
+        question_set_query
+        .order_by(
+            QuestionSet.hiring_year.desc(),
+            QuestionSet.created_at.desc(),
+            QuestionSet.id.desc(),
+        )
+        .all()
+    )
+
+    result = []
+
+    for question_set in question_sets:
+        variants = (
+            db.query(AssessmentSet)
+            .filter(
+                AssessmentSet.question_set_id == question_set.id
+            )
+            .order_by(
+                AssessmentSet.variant_number.asc(),
+                AssessmentSet.id.asc(),
+            )
+            .all()
+        )
+
+        variant_rows = []
+
+        for variant in variants:
+            variant_status = str(variant.status or "draft").strip().lower()
+
+            variant_rows.append({
+                "id": variant.id,
+                "label": variant.label,
+                "variant_number": variant.variant_number,
+                "status": variant_status,
+                "created_at": (
+                    variant.created_at.isoformat()
+                    if variant.created_at else None
+                ),
+                "slot_count": len(variant.slots),
+                "can_open_review": variant_status == "submitted_for_review",
+                "can_view_completed_review": variant_status in {"approved", "rejected"},
+            })
+
+        result.append({
+            "id": question_set.id,
+            "name": question_set.name,
+            "description": question_set.description,
+            "hiring_year": question_set.hiring_year,
+            "hiring_cycle": question_set.hiring_cycle,
+            "variant_count": question_set.variant_count,
+            "status": str(
+                getattr(question_set.status, "value", question_set.status)
+                or "draft"
+            ),
+            "created_at": (
+                question_set.created_at.isoformat()
+                if question_set.created_at else None
+            ),
+            "sets": variant_rows,
+        })
+
+    return {
+        "job": {
+            "id": job.id,
+            "title": job.title,
+            "description": job.description,
+        },
+        "question_sets": result,
+    }
 
 
 @router.get(
@@ -428,6 +568,7 @@ def approve_assessment_set_review(
 )
 def send_assessment_set_to_hr_review(
     assessment_set_id: int,
+    request: AssessmentSetHRHandoffRequest | None = None,
     db: Session = Depends(get_db),
     current_user: dict = Depends(
         require_role("assessment_reviewer")
@@ -450,6 +591,9 @@ def send_assessment_set_to_hr_review(
             db=db,
             assessment_set_id=assessment_set_id,
             reviewer_id=current_user["user_id"],
+            hr_user_id=(
+                request.hr_user_id if request is not None else None
+            ),
         )
 
     except AssessmentSetHRHandoffServiceError as exc:

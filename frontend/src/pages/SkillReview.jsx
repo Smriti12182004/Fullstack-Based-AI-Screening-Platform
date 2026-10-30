@@ -69,8 +69,7 @@ const HEADING_LOOKUP = new Map(
 );
 
 function isAuthError(error) {
-  const status = error?.response?.status;
-  return status === 401 || status === 403;
+  return error?.response?.status === 401;
 }
 
 function getErrorMessage(error, fallback) {
@@ -458,6 +457,170 @@ function normalizeSkillCategory(category) {
   return "technical";
 }
 
+
+const CANONICAL_SKILLS = [
+  "Python", "JavaScript", "TypeScript", "Java", "C", "C++", "C#",
+  "Go", "Rust", "PHP", "Ruby", "Swift", "Kotlin", "R", "SQL",
+  "HTML", "CSS", "React", "Next.js", "Node.js", "Express.js",
+  "FastAPI", "Django", "Flask", "Spring Boot", "ASP.NET",
+  "PostgreSQL", "MySQL", "SQLite", "MongoDB", "Redis",
+  "Elasticsearch", "GraphQL", "REST API", "Docker", "Kubernetes",
+  "AWS", "Microsoft Azure", "Google Cloud Platform", "Git", "GitHub",
+  "Linux", "Bash", "PowerShell", "Terraform", "Ansible", "Jenkins",
+  "GitHub Actions", "CI/CD", "Apache Kafka", "RabbitMQ",
+  "Pandas", "NumPy", "SciPy", "scikit-learn", "TensorFlow",
+  "PyTorch", "Keras", "OpenCV", "Machine Learning", "Deep Learning",
+  "Artificial Intelligence", "Natural Language Processing",
+  "Computer Vision", "Generative AI", "Large Language Models",
+  "Prompt Engineering", "LangChain", "LlamaIndex", "FAISS",
+  "Vector Databases", "Data Analysis", "Data Visualization",
+  "Microsoft Excel", "Power BI", "Tableau", "ETL",
+  "Data Engineering", "Apache Spark", "Airflow", "Snowflake",
+  "Databricks", "Statistics", "Probability", "Linear Algebra",
+  "Communication", "Leadership", "Teamwork", "Problem Solving",
+  "Project Management", "Agile", "Scrum", "Quality Assurance",
+  "Software Testing", "Selenium", "Playwright", "Cypress", "Jest",
+  "Pytest", "Figma", "UI/UX Design", "Product Management", "Sales",
+  "Customer Service", "Content Writing", "SEO", "Digital Marketing",
+  "Negotiation", "Time Management"
+];
+
+function skillLookupKey(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9+#]/g, "");
+}
+
+function skillEditDistance(a, b) {
+  const rows = Array.from(
+    { length: a.length + 1 },
+    () => Array(b.length + 1).fill(0)
+  );
+
+  for (let i = 0; i <= a.length; i++) rows[i][0] = i;
+  for (let j = 0; j <= b.length; j++) rows[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(
+        rows[i - 1][j] + 1,
+        rows[i][j - 1] + 1,
+        rows[i - 1][j - 1] + cost
+      );
+
+      // Treat a transposed pair such as "javscript" as one typo.
+      if (
+        i > 1 &&
+        j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      ) {
+        rows[i][j] = Math.min(
+          rows[i][j],
+          rows[i - 2][j - 2] + 1
+        );
+      }
+    }
+  }
+
+  return rows[a.length][b.length];
+}
+
+const CANONICAL_SKILL_MAP = new Map(
+  CANONICAL_SKILLS.map((skill) => [skillLookupKey(skill), skill])
+);
+
+const SKILL_ALIASES = new Map(
+  [
+    ["pyhton", "Python"],
+    ["pythn", "Python"],
+    ["phyton", "Python"],
+    ["python3", "Python"],
+    ["javscript", "JavaScript"],
+    ["javascrpt", "JavaScript"],
+    ["java script", "JavaScript"],
+    ["js", "JavaScript"],
+    ["type script", "TypeScript"],
+    ["typscript", "TypeScript"],
+    ["reactjs", "React"],
+    ["react js", "React"],
+    ["nodejs", "Node.js"],
+    ["node js", "Node.js"],
+    ["expressjs", "Express.js"],
+    ["fast api", "FastAPI"],
+    ["postgres", "PostgreSQL"],
+    ["postgress", "PostgreSQL"],
+    ["postgressql", "PostgreSQL"],
+    ["postgre sql", "PostgreSQL"],
+    ["my sql", "MySQL"],
+    ["mongo db", "MongoDB"],
+    ["git hub", "GitHub"],
+    ["kubernettes", "Kubernetes"],
+    ["sklearn", "scikit-learn"],
+    ["sci kit learn", "scikit-learn"],
+    ["num py", "NumPy"],
+    ["panda", "Pandas"],
+    ["powerbi", "Power BI"],
+    ["excel", "Microsoft Excel"],
+    ["machinelearning", "Machine Learning"],
+    ["machne learning", "Machine Learning"],
+    ["deep lerning", "Deep Learning"],
+    ["artificial inteligence", "Artificial Intelligence"],
+    ["restapi", "REST API"],
+    ["restful api", "REST API"],
+    ["amazon web services", "AWS"],
+    ["google cloud", "Google Cloud Platform"],
+  ].map(([alias, canonical]) => [skillLookupKey(alias), canonical])
+);
+
+function correctKnownSkillName(value) {
+  const cleaned = String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned) return "";
+
+  const key = skillLookupKey(cleaned);
+
+  // Use canonical casing and exact known aliases first.
+  if (CANONICAL_SKILL_MAP.has(key)) {
+    return CANONICAL_SKILL_MAP.get(key);
+  }
+  if (SKILL_ALIASES.has(key)) {
+    return SKILL_ALIASES.get(key);
+  }
+
+  // Do not guess for very short names or ambiguous matches.
+  if (key.length < 5) return cleaned;
+
+  let bestName = null;
+  let bestDistance = Infinity;
+  let tiedBest = false;
+
+  for (const candidate of CANONICAL_SKILLS) {
+    const candidateKey = skillLookupKey(candidate);
+    const distance = skillEditDistance(key, candidateKey);
+
+    if (distance < bestDistance) {
+      bestName = candidate;
+      bestDistance = distance;
+      tiedBest = false;
+    } else if (distance === bestDistance) {
+      tiedBest = true;
+    }
+  }
+
+  const maxDistance = key.length >= 10 ? 2 : 1;
+
+  return bestName && !tiedBest && bestDistance <= maxDistance
+    ? bestName
+    : cleaned;
+}
+
 function normalizeReviewSkill(skill) {
   const name = typeof skill === "string" ? skill : skill?.name;
 
@@ -475,7 +638,7 @@ function normalizeReviewSkill(skill) {
       : true;
 
   return {
-    name: name.trim(),
+    name: correctKnownSkillName(name.trim()),
     category: normalizeSkillCategory(
       typeof skill === "object" && skill !== null
         ? skill.review_category || skill.category
@@ -486,11 +649,30 @@ function normalizeReviewSkill(skill) {
 }
 
 function normalizeReviewSkills(items) {
-  return (Array.isArray(items) ? items : [])
-    .map(normalizeReviewSkill)
-    .filter(Boolean);
-}
+  const uniqueSkills = new Map();
 
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const skill = normalizeReviewSkill(item);
+    if (!skill) return;
+
+    const key = skill.name.normalize("NFKC").trim().toLowerCase();
+    const existing = uniqueSkills.get(key);
+
+    if (!existing) {
+      uniqueSkills.set(key, skill);
+      return;
+    }
+
+    // Keep one skill entry and preserve mandatory status if either
+    // duplicate marks the skill as mandatory.
+    uniqueSkills.set(key, {
+      ...existing,
+      is_mandatory: existing.is_mandatory || skill.is_mandatory,
+    });
+  });
+
+  return Array.from(uniqueSkills.values());
+}
 function skillStateForComparison(items) {
   return items.map((skill) => ({
     name: skill.name.trim().toLowerCase(),
@@ -515,6 +697,8 @@ function SkillReview() {
 
   const [managers, setManagers] = useState([]);
   const [selectedManagerId, setSelectedManagerId] = useState("");
+  const [reviewers, setReviewers] = useState([]);
+  const [selectedReviewerId, setSelectedReviewerId] = useState("");
   const [loadingManagers, setLoadingManagers] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareStatus, setShareStatus] = useState("");
@@ -581,7 +765,11 @@ function SkillReview() {
       const normalizedSkills = normalizeReviewSkills(reviewSkills);
 
       setSkills(normalizedSkills);
-      setSavedSkills(normalizedSkills);
+      setSavedSkills(
+        (Array.isArray(reviewSkills) ? reviewSkills : [])
+          .map(normalizeReviewSkill)
+          .filter(Boolean)
+      );
       setEditingIndex(null);
       setEditingValue("");
       setNewSkill("");
@@ -640,7 +828,11 @@ function SkillReview() {
       );
 
       setSkills(normalizedSkills);
-      setSavedSkills(normalizedSkills);
+      setSavedSkills(
+        (Array.isArray(response.data?.skills) ? response.data.skills : [])
+          .map(normalizeReviewSkill)
+          .filter(Boolean)
+      );
       setEditingIndex(null);
       setEditingValue("");
       setNewSkill("");
@@ -677,7 +869,8 @@ function SkillReview() {
       return;
     }
 
-    const value = newSkill.trim();
+    const originalValue = newSkill.trim();
+    const value = correctKnownSkillName(originalValue);
 
     if (!value) {
       setError("Enter a skill name before adding it.");
@@ -715,7 +908,11 @@ function SkillReview() {
 
     setNewSkill("");
     setError("");
-    setSuccess("");
+    setSuccess(
+      originalValue !== value
+        ? `Corrected "${originalValue}" to "${value}".`
+        : ""
+    );
   };
 
   const handleRemoveSkill = (index) => {
@@ -807,7 +1004,8 @@ function SkillReview() {
       return;
     }
 
-    const value = editingValue.trim();
+    const originalValue = editingValue.trim();
+    const value = correctKnownSkillName(originalValue);
 
     if (!value) {
       setError("Skill name cannot be empty.");
@@ -843,6 +1041,11 @@ function SkillReview() {
 
     cancelEditing();
     setError("");
+    setSuccess(
+      originalValue !== value
+        ? `Corrected "${originalValue}" to "${value}".`
+        : ""
+    );
   };
 
   const handleSave = async () => {
@@ -985,38 +1188,48 @@ function SkillReview() {
 
   const loadAssessmentManagers = async () => {
     setLoadingManagers(true);
+    setError("");
 
     try {
       const response = await api.get("/jobs/collaborators");
+      const collaborators = Array.isArray(response.data)
+        ? response.data
+        : [];
 
-      const availableManagers = (
-        Array.isArray(response.data)
-          ? response.data
-          : []
-      ).filter(
-        (user) =>
-          String(user.role || "")
-            .trim()
-            .toLowerCase()
-            .replace(/[\s-]+/g, "_") ===
-          "assessment_manager"
+      const normalizeRole = (user) =>
+        String(user?.role || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+
+      const availableManagers = collaborators.filter(
+        (user) => normalizeRole(user) === "assessment_manager"
+      );
+      const availableReviewers = collaborators.filter(
+        (user) => normalizeRole(user) === "assessment_reviewer"
       );
 
       setManagers(availableManagers);
+      setReviewers(availableReviewers);
 
-      if (
-        availableManagers.length > 0 &&
-        !selectedManagerId
-      ) {
-        setSelectedManagerId(
-          String(availableManagers[0].id)
+      setSelectedManagerId((current) =>
+        availableManagers.some((user) => String(user.id) === current)
+          ? current
+          : String(availableManagers[0]?.id || "")
+      );
+      setSelectedReviewerId((current) =>
+        availableReviewers.some((user) => String(user.id) === current)
+          ? current
+          : String(availableReviewers[0]?.id || "")
+      );
+
+      if (!availableManagers.length || !availableReviewers.length) {
+        setError(
+          "Both an Assessment Manager and an Assessment Reviewer must be available before this job can be assigned."
         );
       }
     } catch (err) {
-      console.error(
-        "Failed to load assessment managers:",
-        err
-      );
+      console.error("Failed to load job collaborators:", err);
 
       if (isAuthError(err)) {
         navigate("/login", { replace: true });
@@ -1026,14 +1239,13 @@ function SkillReview() {
       setError(
         getErrorMessage(
           err,
-          "Unable to load available Assessment Managers."
+          "Unable to load available Assessment Managers and Reviewers."
         )
       );
     } finally {
       setLoadingManagers(false);
     }
   };
-
   useEffect(() => {
     if (status === "confirmed") {
       loadAssessmentManagers();
@@ -1043,14 +1255,28 @@ function SkillReview() {
   }, [status, jobId]);
 
   const handleShareWithManager = async () => {
+    if (job?.workflow_status === "completed") {
+      setError(
+        "This assessment workflow is completed. " +
+        "Manager and reviewer assignments are locked."
+      );
+      setSuccess("");
+      return;
+    }
     if (status !== "confirmed") {
-      setError("Confirm the skills before sharing this job.");
+      setError("Confirm the skills before assigning this job.");
       setSuccess("");
       return;
     }
 
-    if (!selectedManagerId) {
-      setError("Select an Assessment Manager first.");
+    if (!selectedManagerId || !selectedReviewerId) {
+      setError("Select both an Assessment Manager and an Assessment Reviewer.");
+      setSuccess("");
+      return;
+    }
+
+    if (selectedManagerId === selectedReviewerId) {
+      setError("Choose two different people for the manager and reviewer roles.");
       setSuccess("");
       return;
     }
@@ -1061,37 +1287,35 @@ function SkillReview() {
     setShareStatus("");
 
     try {
-      const response = await api.post(
-        `/jobs/${jobId}/share`,
+      const response = await api.put(
+        `/jobs/${jobId}/collaboration`,
         {
-          manager_user_id: Number(selectedManagerId),
+          assessment_manager_id: Number(selectedManagerId),
+          assessment_reviewer_id: Number(selectedReviewerId),
         }
       );
 
       const result = response.data || {};
-      const alreadyShared =
-        result.status === "already_shared";
-
       const managerName =
-        result.manager_username ||
+        result.assessment_manager?.username ||
         managers.find(
-          (manager) =>
-            String(manager.id) === String(selectedManagerId)
+          (user) => String(user.id) === String(selectedManagerId)
         )?.username ||
-        "Assessment Manager";
+        "Selected Assessment Manager";
 
-      setShareStatus(result.status || "shared");
+      const reviewerName =
+        result.assessment_reviewer?.username ||
+        reviewers.find(
+          (user) => String(user.id) === String(selectedReviewerId)
+        )?.username ||
+        "Selected Assessment Reviewer";
 
+      setShareStatus("shared");
       setSuccess(
-        alreadyShared
-          ? `${managerName} already has access to this job.`
-          : `Job shared successfully with ${managerName}.`
+        `Job assigned successfully. Assessment Manager: ${managerName}. Assessment Reviewer: ${reviewerName}.`
       );
     } catch (err) {
-      console.error(
-        "Failed to share job with Assessment Manager:",
-        err
-      );
+      console.error("Failed to assign job collaborators:", err);
 
       if (isAuthError(err)) {
         navigate("/login", { replace: true });
@@ -1101,14 +1325,13 @@ function SkillReview() {
       setError(
         getErrorMessage(
           err,
-          "Unable to share this job with the Assessment Manager."
+          "Unable to assign the Assessment Manager and Assessment Reviewer."
         )
       );
     } finally {
       setSharing(false);
     }
   };
-
   const handleBackToDashboard = () => {
     if (hasUnsavedChanges) {
       setError(
@@ -1235,6 +1458,7 @@ function SkillReview() {
           </section>
         ) : (
           <div className="space-y-7">
+
             {/* JOB DESCRIPTION */}
             <section className="rounded-2xl border border-[#DCE5E2] bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)] sm:rounded-[22px]">
               <div className="flex flex-col gap-5 px-4 py-5 sm:gap-6 sm:px-6 sm:py-6 lg:px-7">
@@ -1717,88 +1941,116 @@ function SkillReview() {
                             Next stage
                           </p>
                           <h3 className="mt-1 text-base font-semibold text-[#202938]">
-                            Send this job to Assessment Manager
+                            Assign this job to your assessment team
                           </h3>
                           <p className="mt-1.5 max-w-2xl text-xs leading-5 text-[#667085]">
-                            The job and confirmed skills will become available
-                            in the selected manager&apos;s assessment workspace.
+                            The confirmed job and skills will be assigned to both selected collaborators.
+
                           </p>
                         </div>
                       </div>
 
-                      <div className="w-full lg:max-w-[420px]">
-                        <label
-                          htmlFor="assessment-manager"
-                          className="mb-2 block text-[10px] font-bold uppercase tracking-[0.13em] text-[#7B8794]"
-                        >
-                          Assessment Manager
-                        </label>
+                      <div className="w-full lg:max-w-[520px]">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="min-w-0">
+                            <label
+                              htmlFor="assessment-manager"
+                              className="mb-2 block text-[10px] font-bold uppercase tracking-[0.13em] text-[#7B8794]"
+                            >
+                              Assessment Manager
+                            </label>
+                            <select
+                              id="assessment-manager"
+                              value={selectedManagerId}
+                              onChange={(event) => {
+                                setSelectedManagerId(event.target.value);
+                                setShareStatus("");
+                              }}
+                              disabled={job?.workflow_status === "completed" || (loadingManagers || sharing || managers.length === 0)}
+                              className="h-11 w-full rounded-xl border border-[#CDD3E0] bg-white px-3 text-xs font-medium text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {loadingManagers ? (
+                                <option value="">Loading managers...</option>
+                              ) : managers.length === 0 ? (
+                                <option value="">No Assessment Managers available</option>
+                              ) : (
+                                managers.map((manager) => (
+                                  <option key={manager.id} value={manager.id}>
+                                    {manager.username || manager.email || `Manager #${manager.id}`}
+                                    {manager.email ? ` — ${manager.email}` : ""}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </div>
 
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <select
-                            id="assessment-manager"
-                            value={selectedManagerId}
-                            onChange={(event) => {
-                              setSelectedManagerId(event.target.value);
-                              setShareStatus("");
-                            }}
-                            disabled={
-                              loadingManagers ||
-                              sharing ||
-                              managers.length === 0
-                            }
-                            className="h-10 min-w-0 flex-1 rounded-lg border border-[#CDD3E0] bg-white px-3 text-xs font-medium text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {loadingManagers ? (
-                              <option value="">Loading managers...</option>
-                            ) : managers.length === 0 ? (
-                              <option value="">
-                                No Assessment Managers available
-                              </option>
-                            ) : (
-                              managers.map((manager) => (
-                                <option
-                                  key={manager.id}
-                                  value={manager.id}
-                                >
-                                  {manager.username} — {manager.email}
-                                </option>
-                              ))
-                            )}
-                          </select>
-
-                          <button
-                            type="button"
-                            onClick={handleShareWithManager}
-                            disabled={
-                              loadingManagers ||
-                              sharing ||
-                              !selectedManagerId ||
-                              managers.length === 0
-                            }
-                            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#5658E8] px-4 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(86,88,232,0.16)] transition hover:-translate-y-0.5 hover:bg-[#494BD8] focus:outline-none focus:ring-4 focus:ring-[#5658E8]/15 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {sharing ? (
-                              <>
-                                <RefreshCw size={14} className="animate-spin" />
-                                Sending...
-                              </>
-                            ) : shareStatus === "shared" ? (
-                              <>
-                                <CheckCircle2 size={14} />
-                                Shared
-                              </>
-                            ) : (
-                              <>
-                                <Send size={14} />
-                                Send Job
-                              </>
-                            )}
-                          </button>
+                          <div className="min-w-0">
+                            <label
+                              htmlFor="assessment-reviewer"
+                              className="mb-2 block text-[10px] font-bold uppercase tracking-[0.13em] text-[#7B8794]"
+                            >
+                              Assessment Reviewer
+                            </label>
+                            <select
+                              id="assessment-reviewer"
+                              value={selectedReviewerId}
+                              onChange={(event) => {
+                                setSelectedReviewerId(event.target.value);
+                                setShareStatus("");
+                              }}
+                              disabled={job?.workflow_status === "completed" || (loadingManagers || sharing || reviewers.length === 0)}
+                              className="h-11 w-full rounded-xl border border-[#CDD3E0] bg-white px-3 text-xs font-medium text-[#344054] outline-none transition focus:border-[#5658E8] focus:ring-4 focus:ring-[#5658E8]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {loadingManagers ? (
+                                <option value="">Loading reviewers...</option>
+                              ) : reviewers.length === 0 ? (
+                                <option value="">No Assessment Reviewers available</option>
+                              ) : (
+                                reviewers.map((reviewer) => (
+                                  <option key={reviewer.id} value={reviewer.id}>
+                                    {reviewer.username || reviewer.email || `Reviewer #${reviewer.id}`}
+                                    {reviewer.email ? ` — ${reviewer.email}` : ""}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </div>
                         </div>
 
+                        <button
+                          type="button"
+                          onClick={handleShareWithManager}
+                          disabled={
+                            job?.workflow_status === "completed" ||
+                            loadingManagers ||
+                            sharing ||
+                            !selectedManagerId ||
+                            !selectedReviewerId ||
+                            managers.length === 0 ||
+                            reviewers.length === 0
+                          }
+                          className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#5658E8] px-4 text-xs font-semibold text-white shadow-[0_7px_16px_rgba(86,88,232,0.16)] transition hover:-translate-y-0.5 hover:bg-[#494BD8] focus:outline-none focus:ring-4 focus:ring-[#5658E8]/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {sharing ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" />
+                              Assigning...
+                            </>
+                          ) : shareStatus === "shared" ? (
+                            <>
+                              <CheckCircle2 size={14} />
+                              Assigned
+                            </>
+                          ) : (
+                            <>
+                              <Send size={14} />
+                              Assign Manager & Reviewer
+                            </>
+                          )}
+                        </button>
+
                         <p className="mt-2 text-[10px] leading-4 text-[#98A2B3]">
-                          Only confirmed skills can be handed off for assessment preparation.
+                          Both people are assigned together and must be different users.
                         </p>
                       </div>
                     </div>

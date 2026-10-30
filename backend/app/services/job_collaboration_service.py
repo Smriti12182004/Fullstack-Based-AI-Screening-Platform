@@ -21,6 +21,9 @@ from app.services.notification_service import (
 )
 
 
+from app.services.job_lifecycle_service import get_job_workflow_status
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -143,6 +146,16 @@ def assign_job_collaborators(
         job_id=job_id,
         recruiter_id=recruiter_id,
     )
+
+    if get_job_workflow_status(db, job.id) == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This job's assessment workflow is completed. "
+                "Assessment Manager and Assessment Reviewer assignments "
+                "are locked."
+            ),
+        )
 
     if assessment_manager_id == assessment_reviewer_id:
         raise HTTPException(

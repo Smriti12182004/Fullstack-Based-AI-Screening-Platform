@@ -8,7 +8,7 @@ def get_job_activity(
     db: Session,
     job_id: int,
     recruiter_id: int,
-) -> list[AuditEvent]:
+) -> list[dict[str, object]]:
     job = (
         db.query(Job)
         .filter(
@@ -24,7 +24,7 @@ def get_job_activity(
             detail="Job not found",
         )
 
-    return (
+    events = (
         db.query(AuditEvent)
         .filter(
             AuditEvent.entity_type == "job",
@@ -37,3 +37,17 @@ def get_job_activity(
         .limit(100)
         .all()
     )
+
+    return [
+        {
+            "id": event.id,
+            "job_id": job.id,
+            "user_id": event.user_id,
+            "action": event.action,
+            "entity_type": event.entity_type,
+            "entity_id": event.entity_id,
+            "details": event.details,
+            "created_at": event.created_at,
+        }
+        for event in events
+    ]

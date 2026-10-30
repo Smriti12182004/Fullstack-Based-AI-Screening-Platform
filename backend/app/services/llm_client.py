@@ -110,25 +110,44 @@ def _call_gemini_chat(
         "Content-Type": "application/json",
     }
 
-    try:
-        response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=max(float(timeout), 1.0),
-        )
-    except requests.exceptions.Timeout as exc:
-        raise LLMConnectionError(
-            f"Gemini generation timed out after {float(timeout):g} seconds."
-        ) from exc
-    except requests.exceptions.ConnectionError as exc:
-        raise LLMConnectionError(
-            "Unable to connect to the Gemini API."
-        ) from exc
-    except requests.exceptions.RequestException as exc:
-        raise LLMResponseError(
-            f"Gemini API request failed: {exc}"
-        ) from exc
+    retry_delays = (1.0, 2.0)
+    response = None
+
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=max(float(timeout), 1.0),
+            )
+        except requests.exceptions.Timeout as exc:
+            if attempt < len(retry_delays):
+                time.sleep(retry_delays[attempt])
+                continue
+            raise LLMConnectionError(
+                f"Gemini generation timed out after {float(timeout):g} seconds."
+            ) from exc
+        except requests.exceptions.ConnectionError as exc:
+            if attempt < len(retry_delays):
+                time.sleep(retry_delays[attempt])
+                continue
+            raise LLMConnectionError(
+                "Unable to connect to the Gemini API."
+            ) from exc
+        except requests.exceptions.RequestException as exc:
+            raise LLMResponseError(
+                f"Gemini API request failed: {exc}"
+            ) from exc
+
+        if (
+            response.status_code in {500, 502, 503, 504}
+            and attempt < len(retry_delays)
+        ):
+            time.sleep(retry_delays[attempt])
+            continue
+
+        break
 
     if response.status_code == 429:
         detail = response.text.strip() or "rate limit exceeded"

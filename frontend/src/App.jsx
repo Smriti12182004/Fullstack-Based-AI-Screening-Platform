@@ -24,6 +24,7 @@ import QuestionBanks from "./pages/QuestionBanks";
 import AssessmentConfig from "./pages/AssessmentConfig";
 import ManagerAssessmentSets from "./pages/ManagerAssessmentSets";
 import ReviewerWorkspace from "./pages/ReviewerWorkspace";
+import ReviewerJobSets from "./pages/ReviewerJobSets";
 
 import CandidateDashboard from "./pages/CandidateDashboard";
 import CandidateAssessment from "./pages/CandidateAssessment";
@@ -31,8 +32,11 @@ import CandidateAssessment from "./pages/CandidateAssessment";
 import AdminDashboard from "./pages/AdminDashboard";
 import RoleDashboard from "./pages/RoleDashboard";
 import AssignedJobs from "./pages/AssignedJobs";
+import ManagerJobReview from "./pages/ManagerJobReview";
 
 import ProtectedRoute from "./components/ProtectedRoute";
+import ECompass from "./components/ECompass";
+import Handbook from "./pages/Handbook";
 
 function App() {
   return (
@@ -162,6 +166,15 @@ function App() {
         />
 
         <Route
+          path="/manager/jobs/:jobId/review"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_manager"]}>
+              <ManagerJobReview />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/questions"
           element={
             <ProtectedRoute allowedRoles={["assessment_manager"]}>
@@ -175,7 +188,6 @@ function App() {
           element={
             <ProtectedRoute
               allowedRoles={[
-                "recruiter",
                 "assessment_manager",
                 "assessment_reviewer",
               ]}
@@ -225,6 +237,15 @@ function App() {
         />
 
         <Route
+          path="/review/jobs/:jobId/sets"
+          element={
+            <ProtectedRoute allowedRoles={["assessment_reviewer"]}>
+              <ReviewerJobSets />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/review"
           element={
             <ProtectedRoute allowedRoles={["assessment_reviewer"]}>
@@ -263,6 +284,24 @@ function App() {
           }
         />
 
+        {/* ROLE-BASED HANDBOOK: available to every authenticated role */}
+        <Route
+          path="/handbook"
+          element={
+            <ProtectedRoute
+              allowedRoles={[
+                "recruiter",
+                "assessment_manager",
+                "assessment_reviewer",
+                "candidate",
+                "organization_admin",
+              ]}
+            >
+              <Handbook />
+            </ProtectedRoute>
+          }
+        />
+
         {/* FALLBACK */}
         <Route
           path="*"
@@ -274,6 +313,7 @@ function App() {
           }
         />
       </Routes>
+      <ECompass />
     </BrowserRouter>
   );
 }

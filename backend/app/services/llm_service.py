@@ -3590,7 +3590,7 @@ The repaired question MUST visibly execute the supplied plan.
                     },
                 },
                 temperature=0.55 if regeneration_mode else 0.40,
-                timeout=GROQ_QUESTION_TIMEOUT_SECONDS,
+                timeout=GEMINI_QUESTION_TIMEOUT_SECONDS,
                 reasoning_effort="low",
                 max_completion_tokens=1500 if requires_code_snippet else 900,
             )

@@ -595,10 +595,26 @@ def get_completed_review_package(
             ),
         }
 
-    job = getattr(
-        question_set,
-        "job",
-        None,
+    job = getattr(question_set, "job", None)
+
+    hr_user = (
+        db.query(User)
+        .filter(
+            User.id == (assessment_set.sent_to_hr_user_id or job.created_by),
+            User.role == "recruiter",
+        )
+        .first()
+        if job is not None
+        else None
+    )
+    hr_contact_data = (
+        {
+            "id": hr_user.id,
+            "name": hr_user.full_name or hr_user.username,
+            "email": hr_user.email,
+        }
+        if hr_user is not None
+        else None
     )
 
     summary = _summary(
@@ -625,6 +641,7 @@ def get_completed_review_package(
         "sent_to_hr": assessment_set.sent_to_hr_at is not None,
         "sent_to_hr_by": assessment_set.sent_to_hr_by,
         "sent_to_hr_at": assessment_set.sent_to_hr_at,
+        "hr_contact": hr_contact_data,
 
         "review_comment": assessment_set.review_comment,
         "review_checklist": (

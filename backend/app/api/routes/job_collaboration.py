@@ -39,12 +39,55 @@ def get_collaborators(
         require_role("recruiter")
     ),
 ):
-    return get_assignable_collaborators(db)
+    """Return eligible managers and reviewers using their actual user records."""
+    collaborators = get_assignable_collaborators(db)
 
+    demo_names = {
+        "s4_assessment_manager@test.com": "Maya",
+        "s4_assessment_reviewer@test.com": "Noah",
+    }
+    eligible_roles = {
+        "assessment_manager",
+        "assessment_reviewer",
+    }
 
-# ============================================================
-# GET CURRENT JOB COLLABORATION
-# ============================================================
+    result = []
+
+    for user in collaborators:
+        if isinstance(user, dict):
+            user_id = user.get("id")
+            email = str(user.get("email") or "").strip().lower()
+            raw_role = user.get("role") or ""
+            raw_username = user.get("username") or ""
+        else:
+            user_id = getattr(user, "id", None)
+            email = str(getattr(user, "email", "") or "").strip().lower()
+            raw_role = getattr(user, "role", "") or ""
+            raw_username = getattr(user, "username", "") or ""
+
+        role = "_".join(
+            str(raw_role).strip().lower().replace("-", " ").split()
+        )
+
+        if user_id is None or role not in eligible_roles:
+            continue
+
+        username = (
+            demo_names.get(email)
+            or str(raw_username).strip()
+            or email.split("@", 1)[0]
+            or role
+        )
+
+        result.append({
+            "id": user_id,
+            "username": username,
+            "email": email,
+            "role": role,
+        })
+
+    return result
+
 
 @router.get(
     "/{job_id}/collaboration",

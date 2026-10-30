@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertCircle,
@@ -940,19 +940,11 @@ function AssessmentConfig() {
                       skill.skillId,
 
                     easy_count:
-                      skill.easy,
-
-                    medium_count:
-                      section.sectionType ===
-                      "conceptual"
-                        ? 0
-                        : skill.medium,
-
-                    hard_count:
-                      section.sectionType ===
-                      "conceptual"
-                        ? 0
-                        : skill.hard,
+                        section.sectionType === "conceptual" ? skill.easy : 0,
+                      medium_count:
+                        section.sectionType === "implementation" ? skill.medium : 0,
+                      hard_count:
+                        section.sectionType === "free_text" ? skill.hard : 0,
                   })
                 ),
             }

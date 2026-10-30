@@ -85,17 +85,20 @@ def enqueue_assessment_generation(
 
     queue = get_assessment_generation_queue()
 
-    return queue.enqueue(
-        run_assessment_generation_job,
-        slot_id=slot_id,
-        user_id=user_id,
-        count=count,
-        manager_prompt=manager_prompt,
-        generation_strategy=generation_strategy,
-        generation_focus=generation_focus,
-        job_timeout=ASSESSMENT_GENERATION_JOB_TIMEOUT_SECONDS,
+    return queue.enqueue_call(
+        func=run_assessment_generation_job,
+        kwargs={
+            "slot_id": slot_id,
+            "user_id": user_id,
+            "count": count,
+            "manager_prompt": manager_prompt,
+            "generation_strategy": generation_strategy,
+            "generation_focus": generation_focus,
+        },
+        timeout=ASSESSMENT_GENERATION_JOB_TIMEOUT_SECONDS,
         result_ttl=ASSESSMENT_GENERATION_RESULT_TTL_SECONDS,
         failure_ttl=ASSESSMENT_GENERATION_FAILURE_TTL_SECONDS,
+        meta={"slot_id": slot_id, "user_id": user_id},
     )
 
 

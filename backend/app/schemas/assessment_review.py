@@ -162,6 +162,16 @@ class AssessmentSetReviewSummary(BaseModel):
     rejected: int
 
 
+class AssessmentSetReviewHRContact(BaseModel):
+    id: int
+    name: str
+    email: str
+
+
+class AssessmentSetHRHandoffRequest(BaseModel):
+    hr_user_id: int = Field(gt=0)
+
+
 class AssessmentSetReviewPackage(BaseModel):
     assessment_set_id: int
     job_id: int
@@ -173,6 +183,7 @@ class AssessmentSetReviewPackage(BaseModel):
     review_status: str
     reviewer_id: int | None
     reviewed_at: datetime | None
+    hr_contact: AssessmentSetReviewHRContact | None = None
 
     # Keep HR handoff state in the completed-review API response.
     sent_to_hr: bool = False

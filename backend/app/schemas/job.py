@@ -27,6 +27,11 @@ class JobResponse(BaseModel):
     created_by: int
     created_at: datetime
     updated_at: datetime
+    workflow_status: Literal[
+        "pending",
+        "in_progress",
+        "completed",
+    ] = "pending"
 
     model_config = ConfigDict(
         from_attributes=True,

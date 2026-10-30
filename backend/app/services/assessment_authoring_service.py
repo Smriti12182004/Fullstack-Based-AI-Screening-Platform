@@ -2285,6 +2285,7 @@ def generate_slot_question_batch(
     manager_prompt: str | None = None,
     generation_strategy: str = "balanced",
     generation_focus: str = "auto",
+    progress_callback=None,
 ) -> dict:
     """Generate and persist a batch of independent AI candidates for one slot.
 
@@ -2296,6 +2297,24 @@ def generate_slot_question_batch(
     quota/connection failure cannot roll back candidates that were already
     generated successfully.
     """
+
+    progress_state = {"generated_count": 0}
+
+    def report_progress(stage, message):
+        if not callable(progress_callback):
+            return
+        try:
+            progress_callback({
+                "stage": stage,
+                "message": message,
+                "generated_count": progress_state["generated_count"],
+                "requested_count": count,
+            })
+        except Exception:
+            # UI reporting must never interrupt question generation.
+            pass
+
+    report_progress("planning", "Preparing assessment requirements")
     if (
         not isinstance(count, int)
         or count < 1
@@ -2450,6 +2469,8 @@ def generate_slot_question_batch(
     # the manager guidance plus existing questions to choose distinct targets.
     generation_plans = []
 
+    report_progress("planning", f"Planning {count} question targets")
+
     if count > 1:
         try:
             generation_plans = plan_question_batch(
@@ -2483,6 +2504,8 @@ def generate_slot_question_batch(
                 f"{exc}"
             ) from exc
 
+    report_progress("generating", "Preparing question drafts")
+
     batch_request_id = str(
         uuid4()
     )
@@ -2495,11 +2518,6 @@ def generate_slot_question_batch(
         excluded_texts
     )
     recent_batch_question_texts: list[str] = []
-
-    next_attempt_number = _get_next_attempt_number(
-        db,
-        slot.id,
-    )
 
     # One generated question is paired with one semantic plan. Without plans we
     # retain the existing batch size.
@@ -2591,6 +2609,7 @@ def generate_slot_question_batch(
             )
 
             try:
+                report_progress("generating", f"Generating candidate {progress_state['generated_count'] + 1} of {count}")
                 generated_items = (
                     generate_questions_from_skills(
                         skills=[
@@ -2702,9 +2721,15 @@ def generate_slot_question_batch(
 
                 break
 
+            report_progress("validating", "Checking drafts against assessment validation rules")
             valid_items_this_chunk = 0
+            # Serialize attempt numbering for concurrent jobs on this slot.
+            db.query(QuestionSlot).filter(
+                QuestionSlot.id == slot.id
+            ).with_for_update().one()
+            next_attempt_number = _get_next_attempt_number(db, slot.id)
 
-            for candidate in generated_items:
+            for candidate in list(generated_items)[:request_count]:
                 if candidate.question_text:
                     recent_batch_question_texts.append(
                         candidate.question_text
@@ -2739,12 +2764,7 @@ def generate_slot_question_batch(
 
                     continue
 
-                attempt_number = (
-                    next_attempt_number
-                    + len(
-                        persisted_attempts
-                    )
-                )
+                attempt_number = next_attempt_number + valid_items_this_chunk
 
                 attempt_index = (
                     len(
@@ -2812,7 +2832,10 @@ def generate_slot_question_batch(
             # B6: make each successful chunk durable immediately. A later
             # provider failure must not erase candidates from previous chunks.
             if valid_items_this_chunk > 0:
+                report_progress("saving", "Saving validated candidates")
                 db.commit()
+                progress_state["generated_count"] = len(persisted_attempts)
+                report_progress("generating", f"Saved {progress_state['generated_count']} of {count}; continuing")
 
             remaining = (
                 count
@@ -2853,6 +2876,7 @@ def generate_slot_question_batch(
             )
         )
 
+        report_progress("preparing_review", "Preparing saved candidates for human review")
         response = {
             "generation_batch_id": batch_request_id,
             "requested_count": count,

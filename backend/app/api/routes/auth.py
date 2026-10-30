@@ -13,11 +13,13 @@ from fastapi import File, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
 from html import escape
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import MetaData, Table, inspect as sqlalchemy_inspect, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_current_user
+from app.core.roles import VALID_ROLES
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -367,9 +369,9 @@ def candidate_invitation_activation_page():
     html = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Activate your Evalyn account</title>
 <style>body{{margin:0;padding:24px;background:#f7f8fc;font-family:Arial,Helvetica,sans-serif;color:#26284f}}main{{max-width:520px;margin:7vh auto;background:#fff;border:1px solid #e1e4eb;border-radius:22px;padding:32px;box-shadow:0 18px 50px rgba(38,40,79,.08)}}label{{display:block;font-weight:700;font-size:13px;margin:16px 0 7px}}input{{width:100%;box-sizing:border-box;border:1px solid #dce0e8;border-radius:10px;padding:12px;font-size:15px}}button{{width:100%;margin-top:22px;border:0;border-radius:10px;padding:13px;background:#5658e8;color:#fff;font-weight:700;font-size:15px;cursor:pointer}}button:disabled{{opacity:.6;cursor:not-allowed}}.muted{{color:#667085;font-size:14px;line-height:1.6}}#status{{margin-top:16px;font-size:14px;line-height:1.6}}a{{color:#5658e8;font-weight:700}}</style></head>
-<body><main><div style="font-size:11px;letter-spacing:.14em;font-weight:700;color:#5658e8">EVALYN · CANDIDATE ACCOUNT</div><h1 style="margin-bottom:8px">Set your password</h1><p class="muted">Choose a password to activate your candidate account and verify this email address.</p>
+<body><main><div style="font-size:11px;letter-spacing:.14em;font-weight:700;color:#5658e8">EVALYN · ACCOUNT ACTIVATION</div><h1 style="margin-bottom:8px">Set your password</h1><p class="muted">Choose a password to activate your Evalyn account and verify this email address.</p>
 <form id="activation-form"><label for="password">New password</label><input id="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><label for="confirm-password">Confirm password</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button id="submit-button" type="submit">Activate account</button></form><p id="status" role="status" class="muted"></p><p id="login-row" style="display:none"><a href="{frontend_login}">Continue to Evalyn login</a></p></main>
-<script>const form=document.getElementById('activation-form');const statusNode=document.getElementById('status');const submitButton=document.getElementById('submit-button');const token=new URLSearchParams(window.location.hash.slice(1)).get('token')||'';if(token){{window.history.replaceState(null,'',window.location.pathname);}}else{{statusNode.textContent='This setup link is missing its token. Open the complete link from your invitation email.';submitButton.disabled=true;}}form.addEventListener('submit',async(event)=>{{event.preventDefault();statusNode.textContent='';const password=document.getElementById('password').value;const confirmPassword=document.getElementById('confirm-password').value;if(password!==confirmPassword){{statusNode.textContent='The passwords do not match.';return;}}if(!token){{statusNode.textContent='This setup link is invalid. Ask HR to send a new invitation.';return;}}submitButton.disabled=true;submitButton.textContent='Activating…';try{{const response=await fetch(window.location.origin+'/auth/activate-candidate-invitation',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token,password}})}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'Unable to activate the account.');form.style.display='none';statusNode.textContent='Your account is active and your email is verified. You can now sign in to Evalyn.';document.getElementById('login-row').style.display='block';}}catch(error){{statusNode.textContent=error.message||'Unable to activate the account.';submitButton.disabled=false;submitButton.textContent='Activate account';}}}});</script></body></html>'''
+<script>const form=document.getElementById('activation-form');const statusNode=document.getElementById('status');const submitButton=document.getElementById('submit-button');const token=new URLSearchParams(window.location.hash.slice(1)).get('token')||'';if(token){{window.history.replaceState(null,'',window.location.pathname);}}else{{statusNode.textContent='This setup link is missing its token. Open the complete link from your invitation email.';submitButton.disabled=true;}}form.addEventListener('submit',async(event)=>{{event.preventDefault();statusNode.textContent='';const password=document.getElementById('password').value;const confirmPassword=document.getElementById('confirm-password').value;if(password!==confirmPassword){{statusNode.textContent='The passwords do not match.';return;}}if(!token){{statusNode.textContent='This setup link is invalid. Ask HR to send a new invitation.';return;}}submitButton.disabled=true;submitButton.textContent='Activating…';try{{const response=await fetch(new URL('activate-candidate-invitation',window.location.href).toString(),{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{token,password}})}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'Unable to activate the account.');form.style.display='none';statusNode.textContent='Your account is active and your email is verified. You can now sign in to Evalyn.';document.getElementById('login-row').style.display='block';}}catch(error){{statusNode.textContent=error.message||'Unable to activate the account.';submitButton.disabled=false;submitButton.textContent='Activate account';}}}});</script></body></html>'''
 
     return HTMLResponse(
         html,
@@ -400,13 +402,13 @@ def activate_candidate_invitation(
 
     if (
         candidate is None
-        or candidate.role != "candidate"
+        or candidate.role not in VALID_ROLES
         or candidate.is_email_verified
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "This candidate activation link is invalid "
+                "This account activation link is invalid "
                 "or has already been used."
             ),
         )
@@ -436,7 +438,7 @@ def activate_candidate_invitation(
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail=(
-                "This candidate activation link has expired. "
+                "This account activation link has expired. "
                 "Ask HR to send a new invitation."
             ),
         )
@@ -456,7 +458,7 @@ def activate_candidate_invitation(
 
     return {
         "message": (
-            "Candidate account activated and email verified successfully."
+            "Account activated and email verified successfully."
         ),
         "user_id": candidate.id,
         "username": candidate.username,
@@ -626,6 +628,130 @@ def update_my_profile(
         ) from exc
 
     return _profile_response(user)
+
+
+
+@router.delete("/me")
+def delete_my_account(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete the authenticated user's account when safe to do so."""
+    user_id = current_user["user_id"]
+    user = db.get(User, user_id)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Your account could not be found.",
+        )
+
+    if user.role == "organization_admin":
+        admin_count = (
+            db.query(User)
+            .filter(User.role == "organization_admin")
+            .count()
+        )
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This is the last organization administrator. "
+                    "Assign another organization administrator before "
+                    "deleting this account."
+                ),
+            )
+
+    try:
+        # Inspect actual database foreign keys. Preserve historical records:
+        # block deletion when a related record would be broken or cascaded.
+        bind = db.get_bind()
+        inspector = sqlalchemy_inspect(bind)
+        metadata = MetaData()
+        dependent_tables = set()
+
+        for table_name in inspector.get_table_names():
+            for foreign_key in inspector.get_foreign_keys(table_name):
+                if foreign_key.get("referred_table") != User.__tablename__:
+                    continue
+
+                options = foreign_key.get("options") or {}
+                ondelete = str(options.get("ondelete") or "").upper()
+
+                # References explicitly configured to become NULL are safe.
+                if ondelete == "SET NULL":
+                    continue
+
+                local_columns = foreign_key.get("constrained_columns") or []
+                remote_columns = foreign_key.get("referred_columns") or []
+
+                if "id" not in remote_columns:
+                    continue
+
+                table = metadata.tables.get(table_name)
+                if table is None:
+                    table = Table(table_name, metadata, autoload_with=bind)
+
+                for local_column, remote_column in zip(
+                    local_columns, remote_columns
+                ):
+                    if remote_column != "id":
+                        continue
+
+                    statement = (
+                        select(table.c[local_column])
+                        .where(table.c[local_column] == user_id)
+                        .limit(1)
+                    )
+                    if db.execute(statement).first():
+                        dependent_tables.add(table_name)
+                        break
+
+        if dependent_tables:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This account is linked to existing records. "
+                    "Deletion was blocked to preserve assessment, access, "
+                    "and audit history. Contact your organization "
+                    "administrator to resolve the linked records."
+                ),
+            )
+
+        photo_path = _profile_photo_path(user_id)
+        db.delete(user)
+        db.commit()
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This account has linked records and cannot be deleted. "
+                "No deletion was committed."
+            ),
+        ) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete your account. No deletion was committed.",
+        ) from exc
+
+    try:
+        photo_path.unlink(missing_ok=True)
+    except OSError:
+        # The account is already deleted; a leftover photo can be cleaned up
+        # separately and must not turn a successful deletion into an error.
+        pass
+
+    return {
+        "message": "Your account was deleted successfully.",
+        "id": user_id,
+    }
 
 
 @router.get("/me/avatar")

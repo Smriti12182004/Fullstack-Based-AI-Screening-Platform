@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import require_any_role, require_role
 from app.db.session import get_db
+from app.services.job_lifecycle_service import get_job_workflow_status
 from app.models import Job, JobAssessmentAccess, User
 from app.schemas.job import (
     BulkJobDeleteRequest,
@@ -66,6 +67,31 @@ def _get_assigned_manager_access(
             JobAssessmentAccess.user_id == user_id,
         )
         .first()
+    )
+
+
+def _ensure_job_skill_review_access(
+    db: Session,
+    job: Job,
+    current_user: dict,
+    action: str,
+) -> None:
+    """Allow HR owners and managers explicitly assigned to this job."""
+    role = current_user.get("role")
+    user_id = current_user.get("user_id")
+
+    if role == "recruiter" and job.created_by == user_id:
+        return
+
+    if role == "assessment_manager":
+        access = _get_assigned_manager_access(db, job.id, user_id)
+        if access is not None:
+            return
+
+    verb = "review" if action == "review" else "edit"
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"You are not allowed to {verb} skills for this job.",
     )
 
 
@@ -402,7 +428,7 @@ def get_skill_review(
     job_id: int,
     db: Session = Depends(get_db),
     current_user: dict = Depends(
-        require_role("recruiter")
+        require_any_role("recruiter", "assessment_manager")
     ),
 ):
     job = db.get(
@@ -416,14 +442,7 @@ def get_skill_review(
             detail="Job not found",
         )
 
-    if job.created_by != current_user["user_id"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "You are not allowed to review skills "
-                "for this job."
-            ),
-        )
+    _ensure_job_skill_review_access(db, job, current_user, "review")
 
     review = get_or_create_review(
         db,
@@ -453,7 +472,7 @@ def update_skill_review(
     review_data: SkillReviewUpdateSchema,
     db: Session = Depends(get_db),
     current_user: dict = Depends(
-        require_role("recruiter")
+        require_any_role("recruiter", "assessment_manager")
     ),
 ):
     job = db.get(
@@ -467,14 +486,7 @@ def update_skill_review(
             detail="Job not found",
         )
 
-    if job.created_by != current_user["user_id"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "You are not allowed to edit skills "
-                "for this job."
-            ),
-        )
+    _ensure_job_skill_review_access(db, job, current_user, "edit")
 
     try:
         update_job_skills(
@@ -489,6 +501,9 @@ def update_skill_review(
                 skill.model_dump()
                 for skill in review_data.skills
             ],
+            confirm_immediately=(
+                current_user.get("role") == "assessment_manager"
+            ),
         )
 
     except SkillReviewError as exc:
@@ -595,7 +610,7 @@ def get_jobs(
             detail="User not found",
         )
 
-    return (
+    jobs = (
         db.query(Job)
         .filter(
             Job.created_by == current_user["user_id"]
@@ -605,6 +620,14 @@ def get_jobs(
         )
         .all()
     )
+
+    return [
+        {
+            **JobResponse.model_validate(job).model_dump(),
+            "workflow_status": get_job_workflow_status(db, job.id),
+        }
+        for job in jobs
+    ]
 
 
 @router.delete(
@@ -903,4 +926,7 @@ def get_job(
             detail="Job not found",
         )
 
-    return job
+    return {
+        **JobResponse.model_validate(job).model_dump(),
+        "workflow_status": get_job_workflow_status(db, job.id),
+    }

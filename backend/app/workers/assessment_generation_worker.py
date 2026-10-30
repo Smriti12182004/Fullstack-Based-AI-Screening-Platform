@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from rq import get_current_job
+
 import logging
 
 from app.db.session import SessionLocal
@@ -37,6 +39,24 @@ def run_assessment_generation_job(
         count,
     )
 
+    rq_job = get_current_job()
+
+    def report_progress(progress):
+        if rq_job is None:
+            return
+        try:
+            rq_job.meta = {**(rq_job.meta or {}), "progress": progress}
+            rq_job.save_meta()
+        except Exception:
+            logger.warning("Unable to save generation progress", exc_info=True)
+
+    report_progress({
+        "stage": "starting",
+        "message": "Worker started; preparing generation",
+        "generated_count": 0,
+        "requested_count": count,
+    })
+
     db = SessionLocal()
     try:
         result = generate_slot_question_batch(
@@ -47,6 +67,7 @@ def run_assessment_generation_job(
             manager_prompt=manager_prompt,
             generation_strategy=generation_strategy,
             generation_focus=generation_focus,
+            progress_callback=report_progress,
         )
 
         logger.info(
@@ -55,8 +76,25 @@ def run_assessment_generation_job(
             result.get("generated_count") if isinstance(result, dict) else None,
             result.get("requested_count") if isinstance(result, dict) else None,
         )
+        report_progress({
+            "stage": "completed_with_warning" if result.get("warning") else "completed",
+            "message": (
+                result.get("warning")
+                or f"Completed {result.get('generated_count', 0)} of "
+                   f"{result.get('requested_count', count)} candidates"
+            ),
+            "generated_count": result.get("generated_count", 0),
+            "requested_count": result.get("requested_count", count),
+        })
         return result
     except Exception:
+        previous = (rq_job.meta or {}).get("progress", {}) if rq_job else {}
+        report_progress({
+            "stage": "failed",
+            "message": "Generation failed; inspect backend logs",
+            "generated_count": previous.get("generated_count", 0),
+            "requested_count": count,
+        })
         logger.exception(
             "Assessment generation job failed: slot_id=%s user_id=%s",
             slot_id,

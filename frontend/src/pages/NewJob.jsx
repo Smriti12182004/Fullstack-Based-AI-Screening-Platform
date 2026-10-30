@@ -174,6 +174,7 @@ function NewJob() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [creationMethod, setCreationMethod] = useState("");
 
   // ---------------------------------------------------------
   // AI JOB DESCRIPTION GENERATION
@@ -1115,10 +1116,135 @@ function NewJob() {
           )}
         </div>
 
+        {!creationMethod && (
+          <section className="mt-6">
+            <div className="mb-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#667085]">
+                Start here
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-[#202938]">
+                How would you like to create this job?
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-[#667085]">
+                Choose one approach. You can return to this screen without losing your entered details.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationMethod("manual");
+                  setError("");
+                  setSuccess("");
+                }}
+                className="group flex min-h-[240px] flex-col rounded-2xl border-2 border-[#8BB4FA] bg-gradient-to-br from-[#E5EFFF] via-[#F3F8FF] to-white p-6 text-left shadow-[0_12px_30px_rgba(59,130,246,0.15)] transition duration-300 hover:-translate-y-1 hover:border-[#3B82F6] hover:shadow-[0_20px_42px_rgba(59,130,246,0.23)] focus:outline-none focus:ring-4 focus:ring-[#3B82F6]/20"
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#3478F6] text-white shadow-lg shadow-blue-500/25 ring-4 ring-[#3B82F6]/10 transition duration-300 group-hover:rotate-3 group-hover:scale-110">
+                  <Plus size={19} />
+                </span>
+                <span className="mt-4 block text-sm font-semibold text-[#202938]">
+                  Create manually
+                </span>
+                <span className="mt-2 block text-xs leading-5 text-[#667085]">
+                  Write the job title and description yourself.
+                </span>
+                <span className="mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-[#3478F6] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/20 transition duration-200 hover:bg-[#245FCC] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#3B82F6]/25">
+                  Enter details <ArrowRight size={13} />
+                </span>
+              </button>
+
+              <div className="flex items-center justify-center text-[10px] font-bold tracking-widest text-[#98A2B3]">
+                <span className="rounded-full border border-[#EAECF0] bg-white px-3 py-1.5">
+                  OR
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationMethod("upload");
+                  setError("");
+                  setSuccess("");
+                }}
+                className="group flex min-h-[240px] flex-col rounded-2xl border-2 border-[#B9A5EF] bg-gradient-to-br from-[#EEE7FF] via-[#F7F3FF] to-white p-6 text-left shadow-[0_12px_30px_rgba(122,97,216,0.15)] transition duration-300 hover:-translate-y-1 hover:border-[#7A61D8] hover:shadow-[0_20px_42px_rgba(122,97,216,0.23)] focus:outline-none focus:ring-4 focus:ring-[#7A61D8]/20"
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#7955D9] text-white shadow-lg shadow-violet-500/25 ring-4 ring-[#7A61D8]/10 transition duration-300 group-hover:-rotate-3 group-hover:scale-110">
+                  <Upload size={19} />
+                </span>
+                <span className="mt-4 block text-sm font-semibold text-[#202938]">
+                  Upload a job description
+                </span>
+                <span className="mt-2 block text-xs leading-5 text-[#667085]">
+                  Use an existing PDF or TXT document.
+                </span>
+                <span className="mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-[#7955D9] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-500/20 transition duration-200 hover:bg-[#6543C2] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#7A61D8]/25">
+                  Choose a file <ArrowRight size={13} />
+                </span>
+              </button>
+
+              <div className="flex items-center justify-center text-[10px] font-bold tracking-widest text-[#98A2B3]">
+                <span className="rounded-full border border-[#EAECF0] bg-white px-3 py-1.5">
+                  OR
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreationMethod("ai");
+                  setError("");
+                  setSuccess("");
+                }}
+                className="group flex min-h-[240px] flex-col rounded-2xl border-2 border-[#A9A0F0] bg-gradient-to-br from-[#EAEAFF] via-[#F8F3FF] to-[#FFF0F7] p-6 text-left shadow-[0_12px_30px_rgba(101,82,220,0.17)] transition duration-300 hover:-translate-y-1 hover:border-[#765BEA] hover:shadow-[0_20px_42px_rgba(101,82,220,0.25)] focus:outline-none focus:ring-4 focus:ring-[#5658E8]/20"
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#6557E8] to-[#9A58D6] text-white shadow-lg shadow-violet-500/30 ring-4 ring-[#8E7CF5]/15 transition duration-300 group-hover:rotate-3 group-hover:scale-110">
+                  <Sparkles size={19} />
+                </span>
+                <span className="mt-4 block text-sm font-semibold text-[#202938]">
+                  Generate with AI
+                </span>
+                <span className="mt-2 block text-xs leading-5 text-[#667085]">
+                  Provide skills and experience to create an editable description.
+                </span>
+                <span className="mt-auto inline-flex w-fit items-center gap-2 rounded-xl bg-gradient-to-r from-[#6557E8] to-[#9A58D6] px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-violet-500/25 transition duration-200 hover:from-[#5546D4] hover:to-[#8147C4] hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-[#765BEA]/25">
+                  Start with AI <ArrowRight size={13} />
+                </span>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {creationMethod && (
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setCreationMethod("");
+                setError("");
+                setSuccess("");
+              }}
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#DDE1EA] bg-white px-4 text-xs font-semibold text-[#475467] transition hover:border-[#A8AFBC] hover:bg-[#FAFBFD] focus:outline-none focus:ring-4 focus:ring-[#5658E8]/10"
+            >
+              <ArrowLeft size={14} />
+              Back to options
+            </button>
+            <span className="rounded-full border border-[#EAECF0] bg-white px-3 py-1.5 text-[10px] font-semibold text-[#667085]">
+              {creationMethod === "manual"
+                ? "Manual entry"
+                : creationMethod === "upload"
+                  ? "Document upload"
+                  : "AI-assisted creation"}
+            </span>
+          </div>
+        )}
+
         {/* CREATION OPTIONS */}
-        <section className="mt-10 grid grid-cols-1 gap-7 xl:grid-cols-2">
+        {(creationMethod === "manual" || creationMethod === "upload") && (
+          <section className="mt-10 grid grid-cols-1 gap-7 xl:grid-cols-2">
           {/* MANUAL CREATION */}
-          <section className="group overflow-hidden rounded-[26px] border border-[#DDE1EA] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(38,40,79,0.075)]">
+          {creationMethod === "manual" && (
+            <section className="group overflow-hidden rounded-[26px] border border-[#DDE1EA] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(38,40,79,0.075)]">
             <div className="h-1.5 bg-[#3B82F6]" />
 
             <div className="border-b border-[#EAECF0] bg-gradient-to-r from-[#F8FBFF] to-white px-7 py-7 sm:px-8">
@@ -1248,9 +1374,11 @@ function NewJob() {
               </div>
             </form>
           </section>
+          )}
 
           {/* UPLOAD */}
-          <section className="group overflow-hidden rounded-[26px] border border-[#DDD7F0] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(38,40,79,0.075)]">
+          {creationMethod === "upload" && (
+            <section className="group overflow-hidden rounded-[26px] border border-[#DDD7F0] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_48px_rgba(38,40,79,0.075)]">
             <div className="h-1.5 bg-[#7A61D8]" />
 
             <div className="border-b border-[#EAECF0] bg-gradient-to-r from-[#FBF9FF] to-white px-7 py-7 sm:px-8">
@@ -1374,10 +1502,13 @@ function NewJob() {
               </div>
             </div>
           </section>
+          )}
         </section>
+        )}
 
         {/* AI JOB DESCRIPTION GENERATION */}
-        <section className="mt-8 overflow-hidden rounded-[26px] border border-[#D8D6F2] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)]">
+        {creationMethod === "ai" && (
+          <section className="mt-8 overflow-hidden rounded-[26px] border border-[#D8D6F2] bg-white shadow-[0_14px_38px_rgba(38,40,79,0.045)]">
           <div className="h-1.5 bg-gradient-to-r from-[#5658E8] via-[#7A61D8] to-[#B85C87]" />
 
           <div className="border-b border-[#EAECF0] bg-gradient-to-r from-[#F8F8FF] via-[#FBFAFE] to-white px-7 py-7 sm:px-8">
@@ -1704,6 +1835,7 @@ function NewJob() {
             </div>
           </div>
         </section>
+        )}
 
         {/* WORKFLOW EXPLANATION */}
         <section className="mt-10 overflow-hidden rounded-[24px] border border-[#DDE1EA] bg-white shadow-[0_10px_30px_rgba(38,40,79,0.035)]">

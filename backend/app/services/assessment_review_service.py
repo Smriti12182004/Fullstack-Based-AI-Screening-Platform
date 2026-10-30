@@ -1851,22 +1851,30 @@ def get_assessment_set_review_package(
 
 
 
-    job = getattr(
+    job = getattr(question_set, "job", None)
 
-        question_set,
-
-        "job",
-
-        None,
-
+    hr_user = (
+        db.query(User)
+        .filter(
+            User.id == (assessment_set.sent_to_hr_user_id or job.created_by),
+            User.role == "recruiter",
+        )
+        .first()
+        if job is not None
+        else None
+    )
+    hr_contact_data = (
+        {
+            "id": hr_user.id,
+            "name": hr_user.full_name or hr_user.username,
+            "email": hr_user.email,
+        }
+        if hr_user is not None
+        else None
     )
 
-
-
     summary = _assessment_set_review_summary(
-
         slots,
-
     )
 
 
@@ -1898,6 +1906,7 @@ def get_assessment_set_review_package(
         "reviewer_id": reviewer_id,
 
         "reviewed_at": None,
+        "hr_contact": hr_contact_data,
 
         "review_comment": None,
 

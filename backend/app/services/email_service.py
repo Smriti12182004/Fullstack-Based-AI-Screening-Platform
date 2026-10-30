@@ -419,3 +419,94 @@ AI Screening Platform
         raise EmailServiceError(
             "Unable to send assessment invitation email."
         ) from exc
+
+def send_role_activation_email(
+    *,
+    to_email: str,
+    full_name: str,
+    user_role: str,
+    activation_url: str,
+    expires_at: datetime,
+) -> None:
+    """Email a single-use activation link for an invited Evalyn user."""
+    role_labels = {
+        "organization_admin": "Organization Administrator",
+        "recruiter": "Recruiter",
+        "assessment_manager": "Assessment Manager",
+        "assessment_reviewer": "Assessment Reviewer",
+        "candidate": "Candidate",
+    }
+
+    role_label = role_labels.get(user_role)
+    if role_label is None:
+        raise EmailServiceError("Invalid account role.")
+
+    name = full_name or "there"
+    safe_name = escape(name)
+    safe_role = escape(role_label)
+    safe_url = escape(activation_url, quote=True)
+
+    if expires_at.tzinfo is None or expires_at.utcoffset() is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    expiry_label = expires_at.astimezone(timezone.utc).strftime(
+        "%d %b %Y at %H:%M UTC"
+    )
+
+    plain_text = f"""
+Hello {name},
+
+You have been invited to Evalyn as a {role_label}.
+
+Activate your account and set your password using this single-use link:
+{activation_url}
+
+The link expires on {expiry_label}. Do not share it with anyone.
+
+Best regards,
+Evalyn
+AI Screening Platform
+""".strip()
+
+    html_content = _brand_email(
+        heading="Complete your Evalyn account setup",
+        body_html=f"""
+<p style="font-size:15px;line-height:1.7;">
+  Hello <strong>{safe_name}</strong>,
+</p>
+<p style="font-size:15px;line-height:1.7;">
+  You have been invited to Evalyn as a
+  <strong>{safe_role}</strong>. Use the secure link below to verify your
+  email address and set your password.
+</p>
+<p style="margin:28px 0;text-align:center;">
+  <a href="{safe_url}"
+     style="display:inline-block;padding:14px 24px;background:#5658e8;
+     color:#fff;text-decoration:none;border-radius:10px;font-weight:700;">
+    Activate account
+  </a>
+</p>
+<p style="font-size:13px;line-height:1.7;color:#667085;">
+  This single-use link expires on
+  <strong>{escape(expiry_label)}</strong>.
+  If you were not expecting this invitation, ignore this email.
+  Do not forward or share the link.
+</p>
+""",
+    )
+
+    try:
+        _send_email(
+            _build_message(
+                to_email=to_email,
+                subject=f"Complete Your Evalyn {role_label} Account Setup",
+                plain_text=plain_text,
+                html_content=html_content,
+            )
+        )
+    except EmailServiceError:
+        logger.exception(
+            "Failed to send account activation email to %s",
+            to_email,
+        )
+        raise

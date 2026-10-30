@@ -638,7 +638,7 @@ def test_rejected_question_cannot_be_rejected_again():
 
         with pytest.raises(
             QuestionServiceError,
-            match="Only questions pending review can be rejected",
+            match="Only questions pending review or approved questions can be rejected",
         ):
             reject_question(
                 db=db,
